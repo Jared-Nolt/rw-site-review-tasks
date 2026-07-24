@@ -3,13 +3,14 @@
  * Plugin Name: RW Site Review Tasks
  * Description: Auto-creates a monthly website review task per company, assigned to a maker, with a checklist, comments, screenshots, and a front-end maker dashboard.
  * Version: 1.0.0
- * Author: RW Site Review Tasks
+ * Author: Rosewood Dev
+ * Author URI: https://github.com/Jared-Nolt/rw-site-review-tasks
  * Text Domain: rw-site-review-tasks
  * Requires Plugins: advanced-custom-fields-pro
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
-	exit;
+		exit;
 }
 
 define( 'SRT_PLUGIN_FILE', __FILE__ );

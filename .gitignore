@@ -8,6 +8,7 @@ Thumbs.db
 
 # Claude Code local (personal) settings — the shared CLAUDE.md is tracked
 .claude/settings.local.json
+CLAUDE.md
 
 # Dependencies / build (none today, but keep the repo clean if added later)
 /vendor/
