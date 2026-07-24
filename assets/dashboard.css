@@ -1,0 +1,349 @@
+.srt-dashboard-section {
+	margin-bottom: 2rem;
+}
+
+.srt-dashboard-section-title {
+	margin-bottom: 0.75rem;
+}
+
+.srt-dashboard-empty {
+	opacity: 0.6;
+	font-style: italic;
+}
+
+.srt-tile-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 1rem;
+}
+
+.srt-tile {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 1rem;
+	border-radius: 8px;
+	border: 1px solid #ddd;
+	background: #fff;
+	transition: box-shadow 0.15s ease;
+}
+
+.srt-tile:hover {
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.srt-tile-link {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	text-decoration: none;
+	color: inherit;
+}
+
+.srt-tile-pdf {
+	font-size: 0.8rem;
+	align-self: flex-start;
+}
+
+.srt-tile-company {
+	font-weight: 600;
+}
+
+.srt-tile-tag {
+	display: inline-block;
+	width: fit-content;
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	padding: 0.2rem 0.6rem;
+	border-radius: 999px;
+}
+
+.srt-tag-completed .srt-tile-tag {
+	background: #d4edda;
+	color: #1e7e34;
+}
+
+.srt-tag-ready .srt-tile-tag {
+	background: #d6e4ff;
+	color: #1c4e9c;
+}
+
+.srt-tag-overdue .srt-tile-tag {
+	background: #f8d7da;
+	color: #a71d2a;
+}
+
+.srt-tag-overdue {
+	border-color: #f5a3ab;
+}
+
+.srt-tag-needs_work .srt-tile-tag {
+	background: #fff3cd;
+	color: #8a6500;
+}
+
+.srt-checklist-form {
+	margin-bottom: 1.5rem;
+}
+
+/* Section grouping title — mirrors the gold headings on the PDF report */
+.srt-group-title {
+	margin: 1.75rem 0 0.75rem;
+	font-size: 1.15rem;
+	font-weight: 700;
+	color: #ad9661;
+}
+
+.srt-group-title:first-child {
+	margin-top: 0;
+}
+
+.srt-checklist-item {
+	margin-bottom: 1rem;
+	padding-bottom: 1rem;
+	border-bottom: 1px solid #eee;
+}
+
+.srt-checklist-item fieldset {
+	border: none;
+	padding: 0;
+	margin: 0;
+	display: flex;
+    flex-flow: column wrap;
+    gap: 1rem;
+}
+
+.srt-checklist-item legend {
+	font-weight: bold;
+	margin-bottom: 0.4rem;
+	padding: 0;
+}
+
+.srt-checklist-choice {
+	display: inline-block;
+	margin-right: 1.25rem;
+}
+
+.srt-checklist-textarea {
+	width: 100%;
+	max-width: 480px;
+}
+
+.srt-checklist-submit {
+	margin-top: 0.5rem;
+}
+
+.srt-checklist-gallery-label {
+	font-weight: 600;
+	margin-bottom: 0.4rem;
+}
+
+.srt-checklist-gallery {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin-bottom: 0.5rem;
+}
+
+.srt-checklist-gallery img {
+	border-radius: 4px;
+	border: 1px solid #ddd;
+}
+
+.srt-task-status legend {
+	font-weight: 700;
+}
+
+.srt-task-notes .srt-checklist-textarea,
+.srt-task-summary .srt-checklist-textarea {
+	max-width: 100%;
+}
+
+/* ── Scan results ── */
+
+.srt-scan-wrapper {
+	margin-bottom: 2rem;
+	padding-bottom: 1.5rem;
+	border-bottom: 2px solid #eee;
+}
+
+.srt-scan-heading {
+	margin: 0 0 0.25rem;
+	font-size: 1.1rem;
+}
+
+.srt-scan-meta {
+	margin: 0 0 1rem;
+	font-size: 0.85rem;
+	color: #666;
+}
+
+.srt-scan-results {
+	display: flex;
+	flex-direction: column;
+	gap: 1.25rem;
+}
+
+.srt-scan-page {
+	border: 1px solid #d0d0d0;
+	border-radius: 8px;
+	overflow: hidden;
+}
+
+.srt-scan-page-title {
+	margin: 0;
+	padding: 0.6rem 0.9rem;
+	font-size: 0.85rem;
+	font-weight: 600;
+	background: #f0f4ff;
+	border-bottom: 1px solid #d0d0d0;
+}
+
+.srt-scan-page-url {
+	font-weight: 400;
+	word-break: break-all;
+}
+
+.srt-scan-page .srt-scan-section {
+	border: none;
+	border-top: 1px solid #e8e8e8;
+	border-radius: 0;
+}
+
+.srt-scan-page .srt-scan-section:first-of-type {
+	border-top: none;
+}
+
+.srt-scan-section {
+	border: 1px solid #e0e0e0;
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.srt-scan-summary {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.6rem 0.9rem;
+	background: #f8f8f8;
+	cursor: pointer;
+	list-style: none;
+	user-select: none;
+}
+
+.srt-scan-summary::-webkit-details-marker {
+	display: none;
+}
+
+.srt-scan-summary::before {
+	content: '▶';
+	font-size: 0.6rem;
+	color: #888;
+	transition: transform 0.15s ease;
+	flex-shrink: 0;
+}
+
+.srt-scan-section[open] > .srt-scan-summary::before {
+	transform: rotate(90deg);
+}
+
+.srt-scan-label {
+	font-weight: 600;
+	font-size: 0.9rem;
+}
+
+.srt-scan-badge {
+	font-size: 0.78rem;
+	font-weight: 600;
+	padding: 0.15rem 0.55rem;
+	border-radius: 999px;
+	white-space: nowrap;
+}
+
+.srt-scan-badge-ok {
+	background: #d4edda;
+	color: #1e7e34;
+}
+
+.srt-scan-badge-warn {
+	background: #fff3cd;
+	color: #8a6500;
+}
+
+.srt-scan-badge-error {
+	background: #f8d7da;
+	color: #a71d2a;
+}
+
+.srt-scan-items {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.srt-scan-item {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	padding: 0.55rem 0.9rem 0.55rem 1.1rem;
+	border-top: 1px solid #efefef;
+	border-left: 3px solid transparent;
+	font-size: 0.85rem;
+	line-height: 1.4;
+}
+
+.srt-scan-item-error {
+	border-left-color: #dc3545;
+}
+
+.srt-scan-item-warn {
+	border-left-color: #ffc107;
+}
+
+.srt-scan-status {
+	font-weight: 700;
+	font-size: 0.78rem;
+	color: #555;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+}
+
+.srt-scan-msg {
+	color: #222;
+}
+
+.srt-scan-url {
+	word-break: break-all;
+	color: #555;
+	font-size: 0.82rem;
+}
+
+.srt-scan-extract {
+	display: block;
+	margin-top: 0.2rem;
+	padding: 0.25rem 0.4rem;
+	background: #f3f3f3;
+	border-radius: 3px;
+	font-size: 0.78rem;
+	white-space: pre-wrap;
+	word-break: break-all;
+	color: #555;
+}
+
+.srt-scan-skip-note {
+	padding: 0.6rem 0.9rem;
+	margin: 0;
+	font-size: 0.85rem;
+	color: #666;
+}
+
+/* Admin meta box reuse */
+#srt_scan_results .srt-scan-results {
+	margin-top: 0.75rem;
+}
+
+#srt_scan_results .srt-scan-meta {
+	font-size: 0.82rem;
+}
