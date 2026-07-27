@@ -15,6 +15,31 @@ class SRT_CPT_Company {
 		add_action( 'add_meta_boxes', array( __CLASS__, 'add_tasks_meta_box' ) );
 		add_action( 'admin_post_srt_run_company', array( __CLASS__, 'handle_run_company' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'run_company_notice' ) );
+		add_action( 'acf/save_post', array( __CLASS__, 'snap_due_date_to_rule' ), 20 );
+	}
+
+	/**
+	 * Keeps Next Due Date consistent with the company's Due Date Rule: when the
+	 * rule is a weekday, the hand-picked date is moved to that weekday within
+	 * the same month, so the first cycle fires on the right day rather than
+	 * waiting for the cron's first advance to line it up.
+	 */
+	public static function snap_due_date_to_rule( $post_id ) {
+		if ( self::POST_TYPE !== get_post_type( $post_id ) ) {
+			return;
+		}
+
+		$due_date = get_field( 'due_date', $post_id );
+
+		if ( ! $due_date ) {
+			return;
+		}
+
+		$snapped = srt_company_apply_due_rule( $post_id, $due_date );
+
+		if ( $snapped && $snapped !== $due_date ) {
+			update_field( 'due_date', $snapped, $post_id );
+		}
 	}
 
 	public static function register() {
@@ -34,6 +59,8 @@ class SRT_CPT_Company {
 				'menu_icon'    => 'dashicons-building',
 				'supports'     => array( 'title' ),
 				'capability_type' => 'post',
+				'map_meta_cap'    => true,
+				'capabilities'    => srt_editor_post_type_capabilities(),
 			)
 		);
 	}
@@ -58,23 +85,15 @@ class SRT_CPT_Company {
 
 	public static function render_column( $column, $post_id ) {
 		if ( 'srt_maker' === $column ) {
-			$user_id = get_field( 'maker', $post_id );
-			if ( $user_id ) {
-				$user = get_userdata( is_array( $user_id ) ? reset( $user_id ) : $user_id );
-				echo $user ? esc_html( $user->display_name ) : '&#8212;';
-			} else {
-				echo '&#8212;';
-			}
+			$user_id = srt_get_assigned_user_id( 'maker', $post_id );
+			$user    = $user_id ? get_userdata( $user_id ) : false;
+			echo $user ? esc_html( $user->display_name ) : '&#8212;';
 		}
 
 		if ( 'srt_marketing_guide' === $column ) {
-			$user_id = get_field( 'marketing_guide', $post_id );
-			if ( $user_id ) {
-				$user = get_userdata( is_array( $user_id ) ? reset( $user_id ) : $user_id );
-				echo $user ? esc_html( $user->display_name ) : '&#8212;';
-			} else {
-				echo '&#8212;';
-			}
+			$user_id = srt_get_assigned_user_id( 'marketing_guide', $post_id );
+			$user    = $user_id ? get_userdata( $user_id ) : false;
+			echo $user ? esc_html( $user->display_name ) : '&#8212;';
 		}
 
 		if ( 'srt_checklist' === $column ) {
@@ -94,8 +113,14 @@ class SRT_CPT_Company {
 		}
 
 		if ( 'srt_due_date' === $column ) {
-			$due_date = get_field( 'due_date', $post_id );
+			$due_date   = get_field( 'due_date', $post_id );
+			$rule_label = srt_company_due_rule_label( $post_id );
+
 			echo $due_date ? esc_html( $due_date ) : '&#8212;';
+
+			if ( $due_date && $rule_label ) {
+				printf( '<br /><span class="description">%s</span>', esc_html( $rule_label ) );
+			}
 		}
 
 		if ( 'srt_active' === $column ) {

@@ -26,6 +26,8 @@ class SRT_CPT_Checklist {
 				'menu_icon'       => 'dashicons-list-view',
 				'supports'        => array( 'title' ),
 				'capability_type' => 'post',
+				'map_meta_cap'    => true,
+				'capabilities'    => srt_editor_post_type_capabilities(),
 			)
 		);
 	}

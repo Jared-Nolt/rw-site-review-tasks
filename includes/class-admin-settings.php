@@ -54,9 +54,67 @@ class SRT_Admin_Settings {
 			$log_retention = isset( $_POST['srt_log_retention_days'] ) ? max( 0, (int) $_POST['srt_log_retention_days'] ) : SRT_Cron::LOG_RETENTION_DEFAULT;
 			update_option( 'srt_log_retention_days', $log_retention );
 
+			$from_name = isset( $_POST['srt_mail_from_name'] ) ? sanitize_text_field( wp_unslash( $_POST['srt_mail_from_name'] ) ) : '';
+			update_option( SRT_Mailer::FROM_NAME_OPT, $from_name );
+
+			// Blank clears the override and falls back to the WordPress default;
+			// anything that isn't a valid address is rejected rather than stored.
+			$from_address = isset( $_POST['srt_mail_from_address'] ) ? sanitize_email( wp_unslash( $_POST['srt_mail_from_address'] ) ) : '';
+			update_option( SRT_Mailer::FROM_ADDR_OPT, is_email( $from_address ) ? $from_address : '' );
+
+			$reply_to = isset( $_POST['srt_mail_reply_to'] ) ? sanitize_email( wp_unslash( $_POST['srt_mail_reply_to'] ) ) : '';
+			update_option( SRT_Mailer::REPLY_TO_OPT, is_email( $reply_to ) ? $reply_to : '' );
+
 			wp_safe_redirect( self::page_url( 'saved' ) );
 			exit;
 		}
+
+		if ( isset( $_POST['srt_send_test_email'] ) && check_admin_referer( 'srt_test_email', 'srt_test_email_nonce' ) ) {
+			wp_safe_redirect( self::page_url( self::send_test_email() ) );
+			exit;
+		}
+	}
+
+	/**
+	 * Sends a notification-shaped test message to the current user so the From
+	 * address and the transport can be verified without waiting for a real task.
+	 *
+	 * @return string Notice key for the redirect.
+	 */
+	private static function send_test_email() {
+		$user = wp_get_current_user();
+
+		if ( ! $user || ! is_email( $user->user_email ) ) {
+			return 'test_no_address';
+		}
+
+		$sent = SRT_Mailer::send(
+			$user->user_email,
+			__( 'Test: website review task notification', 'rw-site-review-tasks' ),
+			__( 'Email settings test', 'rw-site-review-tasks' ),
+			array(
+				__( 'This is a test of the review task notification email. If it reached your inbox rather than your spam folder, the From address and mail transport are working.', 'rw-site-review-tasks' ),
+				sprintf(
+					/* translators: %s: from address */
+					__( 'It was sent from %s.', 'rw-site-review-tasks' ),
+					SRT_Mailer::from_address()
+				),
+			),
+			admin_url( 'edit.php?post_type=' . SRT_CPT_Company::POST_TYPE ),
+			__( 'Open the Companies screen', 'rw-site-review-tasks' )
+		);
+
+		if ( $sent ) {
+			return 'test_sent';
+		}
+
+		$error = SRT_Mailer::last_error();
+
+		if ( $error ) {
+			set_transient( 'srt_test_email_error', $error, 60 );
+		}
+
+		return 'test_failed';
 	}
 
 	private static function page_url( $notice ) {
@@ -85,6 +143,35 @@ class SRT_Admin_Settings {
 
 			<?php if ( 'saved' === $notice ) : ?>
 				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Settings saved.', 'rw-site-review-tasks' ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( 'test_sent' === $notice ) : ?>
+				<div class="notice notice-success is-dismissible">
+					<p>
+						<?php
+						printf(
+							/* translators: %s: recipient email address */
+							esc_html__( 'Test email handed off to the mail server for %s. Check your inbox and your spam folder — if it landed in spam, the notes below explain why.', 'rw-site-review-tasks' ),
+							esc_html( wp_get_current_user()->user_email )
+						);
+						?>
+					</p>
+				</div>
+			<?php endif; ?>
+
+			<?php if ( 'test_failed' === $notice ) : ?>
+				<?php $test_error = get_transient( 'srt_test_email_error' ); ?>
+				<div class="notice notice-error is-dismissible">
+					<p><?php esc_html_e( 'The test email could not be sent. WordPress rejected it before it left the site, so no review notifications are going out either.', 'rw-site-review-tasks' ); ?></p>
+					<?php if ( $test_error ) : ?>
+						<p><code><?php echo esc_html( $test_error ); ?></code></p>
+					<?php endif; ?>
+				</div>
+				<?php delete_transient( 'srt_test_email_error' ); ?>
+			<?php endif; ?>
+
+			<?php if ( 'test_no_address' === $notice ) : ?>
+				<div class="notice notice-error is-dismissible"><p><?php esc_html_e( 'Your user account has no valid email address, so there is nowhere to send the test.', 'rw-site-review-tasks' ); ?></p></div>
 			<?php endif; ?>
 
 			<h2><?php esc_html_e( 'Pages & Access', 'rw-site-review-tasks' ); ?></h2>
@@ -152,7 +239,9 @@ class SRT_Admin_Settings {
 					<tr>
 						<th scope="row"><label for="srt_wave_api_key"><?php esc_html_e( 'WAVE API key', 'rw-site-review-tasks' ); ?></label></th>
 						<td>
-							<input type="text" name="srt_wave_api_key" id="srt_wave_api_key" value="<?php echo esc_attr( get_option( 'srt_wave_api_key', '' ) ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Leave blank to skip accessibility scanning', 'rw-site-review-tasks' ); ?>" />
+							<?php // Masked on screen. autocomplete="off" keeps browsers from offering to save it as a password. ?>
+							<input type="password" name="srt_wave_api_key" id="srt_wave_api_key" value="<?php echo esc_attr( get_option( 'srt_wave_api_key', '' ) ); ?>" class="regular-text" autocomplete="off" spellcheck="false" placeholder="<?php esc_attr_e( 'Leave blank to skip accessibility scanning', 'rw-site-review-tasks' ); ?>" />
+							<button type="button" class="button button-secondary srt-toggle-secret" data-target="srt_wave_api_key" aria-pressed="false"><?php esc_html_e( 'Show', 'rw-site-review-tasks' ); ?></button>
 							<p class="description">
 								<?php
 								printf(
@@ -167,7 +256,9 @@ class SRT_Admin_Settings {
 					<tr>
 						<th scope="row"><label for="srt_psi_api_key"><?php esc_html_e( 'Google PageSpeed API key', 'rw-site-review-tasks' ); ?></label></th>
 						<td>
-							<input type="text" name="srt_psi_api_key" id="srt_psi_api_key" value="<?php echo esc_attr( get_option( 'srt_psi_api_key', '' ) ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Optional — leave blank to run keyless (lower quota)', 'rw-site-review-tasks' ); ?>" />
+							<?php // Masked on screen. autocomplete="off" keeps browsers from offering to save it as a password. ?>
+							<input type="password" name="srt_psi_api_key" id="srt_psi_api_key" value="<?php echo esc_attr( get_option( 'srt_psi_api_key', '' ) ); ?>" class="regular-text" autocomplete="off" spellcheck="false" placeholder="<?php esc_attr_e( 'Optional — leave blank to run keyless (lower quota)', 'rw-site-review-tasks' ); ?>" />
+							<button type="button" class="button button-secondary srt-toggle-secret" data-target="srt_psi_api_key" aria-pressed="false"><?php esc_html_e( 'Show', 'rw-site-review-tasks' ); ?></button>
 							<p class="description">
 								<?php
 								printf(
@@ -177,6 +268,48 @@ class SRT_Admin_Settings {
 								);
 								?>
 							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="srt_mail_from_name"><?php esc_html_e( 'Email “From” name', 'rw-site-review-tasks' ); ?></label></th>
+						<td>
+							<input type="text" name="srt_mail_from_name" id="srt_mail_from_name" value="<?php echo esc_attr( get_option( SRT_Mailer::FROM_NAME_OPT, '' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ) ); ?>" />
+							<p class="description"><?php esc_html_e( 'The sender name on task notification emails. Defaults to the site title.', 'rw-site-review-tasks' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="srt_mail_from_address"><?php esc_html_e( 'Email “From” address', 'rw-site-review-tasks' ); ?></label></th>
+						<td>
+							<input type="email" name="srt_mail_from_address" id="srt_mail_from_address" value="<?php echo esc_attr( get_option( SRT_Mailer::FROM_ADDR_OPT, '' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( SRT_Mailer::default_from_address() ); ?>" />
+							<p class="description">
+								<?php
+								printf(
+									/* translators: 1: site domain, 2: current effective from address */
+									esc_html__( 'Use a real mailbox on %1$s that someone monitors. Leave blank to use the WordPress default (%2$s), which is usually a non-existent address — a common reason notifications are filtered as spam.', 'rw-site-review-tasks' ),
+									esc_html( SRT_Mailer::site_domain() ),
+									esc_html( SRT_Mailer::default_from_address() )
+								);
+								?>
+							</p>
+							<?php if ( ! SRT_Mailer::is_from_aligned() ) : ?>
+								<p class="description" style="color:#b32d2e;">
+									<?php
+									printf(
+										/* translators: 1: from address, 2: site domain */
+										esc_html__( 'Warning: %1$s is not on %2$s. Sending as another domain (a Gmail or Yahoo address, for example) fails SPF/DKIM alignment and is very likely to be rejected or spam-foldered.', 'rw-site-review-tasks' ),
+										esc_html( SRT_Mailer::from_address() ),
+										esc_html( SRT_Mailer::site_domain() )
+									);
+									?>
+								</p>
+							<?php endif; ?>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="srt_mail_reply_to"><?php esc_html_e( 'Email “Reply-To” address', 'rw-site-review-tasks' ); ?></label></th>
+						<td>
+							<input type="email" name="srt_mail_reply_to" id="srt_mail_reply_to" value="<?php echo esc_attr( get_option( SRT_Mailer::REPLY_TO_OPT, '' ) ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Optional', 'rw-site-review-tasks' ); ?>" />
+							<p class="description"><?php esc_html_e( 'Where replies go if a maker or marketing guide answers the notification. Leave blank to reply to the From address.', 'rw-site-review-tasks' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -198,6 +331,62 @@ class SRT_Admin_Settings {
 				</table>
 				<p class="submit">
 					<button type="submit" name="srt_save_settings" value="1" class="button button-primary"><?php esc_html_e( 'Save Settings', 'rw-site-review-tasks' ); ?></button>
+				</p>
+			</form>
+
+			<?php // Reveal toggle for masked secret fields. Inline because this is the only screen in the plugin that needs script. ?>
+			<script>
+			document.querySelectorAll( '.srt-toggle-secret' ).forEach( function ( button ) {
+				button.addEventListener( 'click', function () {
+					var field = document.getElementById( button.dataset.target );
+
+					if ( ! field ) {
+						return;
+					}
+
+					var reveal = 'password' === field.type;
+
+					field.type          = reveal ? 'text' : 'password';
+					button.textContent  = reveal ? <?php echo wp_json_encode( __( 'Hide', 'rw-site-review-tasks' ) ); ?> : <?php echo wp_json_encode( __( 'Show', 'rw-site-review-tasks' ) ); ?>;
+					button.setAttribute( 'aria-pressed', reveal ? 'true' : 'false' );
+				} );
+			} );
+			</script>
+
+			<hr />
+
+			<h2><?php esc_html_e( 'Email deliverability', 'rw-site-review-tasks' ); ?></h2>
+			<p class="description" style="max-width:44rem;">
+				<?php esc_html_e( 'Notification emails are sent as HTML with a plain-text alternative, from the address configured above, with the return path aligned to it. That covers what this plugin controls. Whether they reach the inbox mostly depends on two things it cannot control:', 'rw-site-review-tasks' ); ?>
+			</p>
+			<ol class="description" style="max-width:44rem;">
+				<li>
+					<?php esc_html_e( 'Authenticated SMTP. Mail sent through PHP’s built-in mail() from a web host’s shared IP is the most common reason notifications land in spam, and some hosts (Kinsta among them) do not deliver it at all. Route mail through a transactional provider — Postmark, SendGrid, Amazon SES, Mailgun, or Google Workspace SMTP — using an SMTP plugin.', 'rw-site-review-tasks' ); ?>
+				</li>
+				<li>
+					<?php
+					printf(
+						/* translators: %s: site domain */
+						esc_html__( 'DNS records on %s: an SPF record listing whichever service sends the mail, a DKIM key from that service, and a DMARC record. Without these, a correct From address is not enough.', 'rw-site-review-tasks' ),
+						esc_html( SRT_Mailer::site_domain() )
+					);
+					?>
+				</li>
+			</ol>
+			<form method="post">
+				<?php wp_nonce_field( 'srt_test_email', 'srt_test_email_nonce' ); ?>
+				<p>
+					<button type="submit" name="srt_send_test_email" value="1" class="button"><?php esc_html_e( 'Send test email to me', 'rw-site-review-tasks' ); ?></button>
+					<span class="description">
+						<?php
+						printf(
+							/* translators: 1: current user email, 2: effective from address */
+							esc_html__( 'Sends a sample notification to %1$s from %2$s.', 'rw-site-review-tasks' ),
+							esc_html( wp_get_current_user()->user_email ),
+							esc_html( SRT_Mailer::from_address() )
+						);
+						?>
+					</span>
 				</p>
 			</form>
 

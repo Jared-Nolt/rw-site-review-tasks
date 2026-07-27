@@ -40,13 +40,16 @@ class SRT_Task_Print {
 			return;
 		}
 
-		if ( SRT_CPT_Task::POST_TYPE !== get_post_type( $task_id ) ) {
-			wp_die( esc_html__( 'Task not found.', 'rw-site-review-tasks' ), '', array( 'response' => 404 ) );
-		}
-
+		// Authenticate before revealing anything about the ID. Checking the post
+		// type first would let an anonymous visitor tell a review task ("please log
+		// in") apart from any other post ID ("not found") and enumerate them.
 		if ( ! is_user_logged_in() ) {
 			auth_redirect();
 			exit;
+		}
+
+		if ( SRT_CPT_Task::POST_TYPE !== get_post_type( $task_id ) ) {
+			wp_die( esc_html__( 'Task not found.', 'rw-site-review-tasks' ), '', array( 'response' => 404 ) );
 		}
 
 		if ( ! srt_user_can_access_task( $task_id ) ) {
@@ -66,6 +69,7 @@ class SRT_Task_Print {
 		$scan       = $is_mg ? get_post_meta( $task_id, SRT_Site_Scanner::META_KEY, true ) : false;
 		$tag        = srt_get_task_tag( $task_id );
 		$logo_url   = SRT_PLUGIN_URL . 'assets/rosewood-logo.png';
+		$task_url   = $is_mg ? srt_task_page_url( $task_id ) : '';
 
 		// Filename the browser suggests when saving as PDF is taken from <title>:
 		// {Y-m-d}-{Company-Name}-Website-Health-Security-Report(.pdf)
@@ -120,6 +124,23 @@ class SRT_Task_Print {
 				.rw-meta { margin: 0 0 2.6rem; }
 				.rw-meta p { margin: 0 0 0.35rem; }
 				.rw-meta .rw-label { font-weight: 700; }
+
+				/* Back-link to the front-end task page (MG report only) */
+				.rw-task-link { margin-top: 0.7rem; }
+				.rw-task-link a {
+					font-family: "Open Sans", Arial, Helvetica, sans-serif;
+					font-weight: 600;
+					font-size: 10pt;
+					color: var(--rw-maroon);
+				}
+				.rw-task-link-url {
+					display: block;
+					font-family: "Open Sans", Arial, Helvetica, sans-serif;
+					font-size: 8.5pt;
+					color: var(--rw-muted);
+					word-break: break-all;
+				}
+
 				.rw-section { margin: 0 0 2rem; }
 				.rw-heading {
 					font-family: "Open Sans", Arial, Helvetica, sans-serif;
@@ -292,6 +313,12 @@ class SRT_Task_Print {
 					<p><span class="rw-label"><?php esc_html_e( 'Report Period:', 'rw-site-review-tasks' ); ?></span> <?php echo esc_html( $period ); ?></p>
 					<p><span class="rw-label"><?php esc_html_e( 'Status:', 'rw-site-review-tasks' ); ?></span> <?php echo esc_html( $tag ); ?></p>
 					<p><?php echo wp_kses_post( srt_format_people_line( $task_id ) ); ?></p>
+					<?php if ( $task_url ) : ?>
+						<p class="rw-task-link">
+							<a href="<?php echo esc_url( $task_url ); ?>"><?php esc_html_e( 'View this task online', 'rw-site-review-tasks' ); ?></a>
+							<span class="rw-task-link-url"><?php echo esc_html( $task_url ); ?></span>
+						</p>
+					<?php endif; ?>
 				</div>
 
 				<?php if ( '' !== trim( (string) $summary ) ) : ?>

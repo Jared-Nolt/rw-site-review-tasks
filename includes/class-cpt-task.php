@@ -28,6 +28,8 @@ class SRT_CPT_Task {
 				'menu_icon'       => 'dashicons-clipboard',
 				'supports'        => array( 'title' ),
 				'capability_type' => 'post',
+				'map_meta_cap'    => true,
+				'capabilities'    => srt_editor_post_type_capabilities(),
 			)
 		);
 	}
@@ -48,8 +50,8 @@ class SRT_CPT_Task {
 				break;
 
 			case 'srt_maker':
-				$user_id = get_field( 'maker', $post_id );
-				$user    = $user_id ? get_userdata( is_array( $user_id ) ? reset( $user_id ) : $user_id ) : null;
+				$user_id = srt_get_assigned_user_id( 'maker', $post_id );
+				$user    = $user_id ? get_userdata( $user_id ) : null;
 				echo $user ? esc_html( $user->display_name ) : '&#8212;';
 				break;
 

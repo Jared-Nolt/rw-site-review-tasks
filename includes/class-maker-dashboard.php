@@ -131,7 +131,6 @@ class SRT_Maker_Dashboard {
 	}
 
 	private static function render_section( $title, $rows ) {
-		$task_page_id = (int) get_option( 'srt_task_page_id' );
 		?>
 		<div class="srt-dashboard-section">
 			<h2 class="srt-dashboard-section-title"><?php echo esc_html( $title ); ?></h2>
@@ -141,9 +140,8 @@ class SRT_Maker_Dashboard {
 				<div class="srt-tile-grid">
 					<?php foreach ( $rows as $row ) : ?>
 						<?php
-						$url = $task_page_id
-							? add_query_arg( 'task_id', $row['task_id'], get_permalink( $task_page_id ) )
-							: '#';
+						$url = srt_task_page_url( $row['task_id'] );
+						$url = $url ? $url : '#';
 						?>
 						<div class="srt-tile srt-tag-<?php echo esc_attr( $row['tag_slug'] ); ?>">
 							<a class="srt-tile-link" href="<?php echo esc_url( $url ); ?>">

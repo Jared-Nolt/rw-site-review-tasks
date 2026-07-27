@@ -79,8 +79,36 @@ class SRT_Site_Scanner {
 	// Broken link checker
 	// -------------------------------------------------------------------------
 
+	/**
+	 * Whether a scan target must not be requested.
+	 *
+	 * wp_http_validate_url() — the check the wp_safe_remote_* wrappers apply —
+	 * rejects loopback and RFC1918 hosts, resolving the name first so a DNS record
+	 * aimed at a private range is caught too, and limits ports to 80/443/8080.
+	 * Calling it directly lets a blocked link be counted as skipped rather than
+	 * surfacing as a bogus "broken link" in the client's report.
+	 *
+	 * It does not cover 169.254.0.0/16, where cloud instance metadata
+	 * (169.254.169.254) lives, so that range is filtered here as well.
+	 */
+	private static function is_unsafe_target( $url ) {
+		if ( ! wp_http_validate_url( $url ) ) {
+			return true;
+		}
+
+		$host = strtolower( trim( (string) wp_parse_url( $url, PHP_URL_HOST ), '.' ) );
+
+		if ( '' === $host ) {
+			return true;
+		}
+
+		$ip = filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ? $host : gethostbyname( $host );
+
+		return 0 === strpos( $ip, '169.254.' ) || 'fe80:' === strtolower( substr( $ip, 0, 5 ) );
+	}
+
 	private static function check_links( $base_url ) {
-		$response = wp_remote_get(
+		$response = wp_safe_remote_get(
 			$base_url,
 			array(
 				'timeout'    => 20,
@@ -99,12 +127,23 @@ class SRT_Site_Scanner {
 		$broken     = array();
 		$start_time = time();
 
+		$skipped = 0;
+
 		foreach ( array_slice( $links, 0, 60 ) as $link ) {
 			if ( time() - $start_time > 55 ) {
 				break;
 			}
 
-			$check = wp_remote_request(
+			// These URLs come off the scanned page, so they are third-party input:
+			// a link planted in a comment could otherwise point the server at an
+			// internal address. Skipped targets are counted, never reported as
+			// broken — a blocked link says nothing about the client's site.
+			if ( self::is_unsafe_target( $link ) ) {
+				$skipped++;
+				continue;
+			}
+
+			$check = wp_safe_remote_request(
 				$link,
 				array(
 					'method'      => 'HEAD',
@@ -136,6 +175,7 @@ class SRT_Site_Scanner {
 		return array(
 			'checked' => $total,
 			'broken'  => $broken,
+			'skipped' => $skipped,
 		);
 	}
 
@@ -524,6 +564,7 @@ class SRT_Site_Scanner {
 
 		$broken  = isset( $data['broken'] ) ? $data['broken'] : array();
 		$checked = isset( $data['checked'] ) ? (int) $data['checked'] : 0;
+		$skipped = isset( $data['skipped'] ) ? (int) $data['skipped'] : 0;
 		$count   = count( $broken );
 
 		$summary = $count > 0
@@ -531,6 +572,15 @@ class SRT_Site_Scanner {
 			? sprintf( _n( '%1$d broken of %2$d checked', '%1$d broken of %2$d checked', $count, 'rw-site-review-tasks' ), $count, $checked )
 			/* translators: %d: total links checked */
 			: sprintf( _n( 'All OK — %d link checked', 'All OK — %d links checked', $checked, 'rw-site-review-tasks' ), $checked );
+
+		// Never let a reduced-coverage scan read as a clean one.
+		if ( $skipped > 0 ) {
+			$summary .= sprintf(
+				/* translators: %d: number of links not requested because they pointed at an internal address */
+				_n( ', %d skipped as unsafe', ', %d skipped as unsafe', $skipped, 'rw-site-review-tasks' ),
+				$skipped
+			);
+		}
 
 		$level = $count > 0 ? 'error' : 'ok';
 

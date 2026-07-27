@@ -52,28 +52,114 @@ function srt_lines_to_array( $text ) {
 }
 
 /**
+ * Capability map shared by all three post types, pinning every primitive
+ * capability to `edit_others_posts` — the lowest capability an Editor has and an
+ * Author or Contributor does not. The plugin's admin screens are therefore
+ * invisible below Editor level, while the front-end dashboard and task page stay
+ * open to assigned makers and marketing guides through srt_user_can_access_task()
+ * regardless of their role.
+ *
+ * Only primitive capabilities belong here. Do NOT add the meta capabilities
+ * `edit_post`, `read_post` or `delete_post`: register_post_type() feeds those
+ * through _post_type_meta_capabilities(), which registers the mapping globally as
+ * $post_type_meta_caps[ <custom> ] = <meta cap>. Aliasing them to a real
+ * primitive would make map_meta_cap() reroute every site-wide
+ * current_user_can( 'edit_others_posts' ) call — core's Posts and Pages screens
+ * included — into a post-specific meta check with no post ID, which resolves to
+ * `do_not_allow` and silently denies the capability everywhere.
+ *
+ * Leaving them out keeps the stock `capability_type => 'post'` meta caps, and
+ * map_meta_cap() resolves those against the overridden primitives below.
+ */
+function srt_editor_post_type_capabilities() {
+	$cap = 'edit_others_posts';
+
+	return array(
+		'edit_posts'             => $cap,
+		'edit_others_posts'      => $cap,
+		'edit_published_posts'   => $cap,
+		'edit_private_posts'     => $cap,
+		'publish_posts'          => $cap,
+		'read_private_posts'     => $cap,
+		'delete_posts'           => $cap,
+		'delete_others_posts'    => $cap,
+		'delete_published_posts' => $cap,
+		'delete_private_posts'   => $cap,
+		'create_posts'           => $cap,
+	);
+}
+
+/**
+ * Reads an ACF user field as a single user ID.
+ *
+ * The fields are configured for one user, but ACF hands back an array if the
+ * value was ever saved as multiple — and `(int) array( 5 )` evaluates to 1,
+ * which would lock the real assignee out and silently match user ID 1 instead.
+ *
+ * @return int User ID, or 0 when unset.
+ */
+function srt_get_assigned_user_id( $field, $post_id ) {
+	$value = get_field( $field, $post_id );
+
+	if ( is_array( $value ) ) {
+		$value = reset( $value );
+	}
+
+	if ( is_object( $value ) && isset( $value->ID ) ) {
+		$value = $value->ID;
+	}
+
+	return is_scalar( $value ) ? (int) $value : 0;
+}
+
+/**
  * Whether the current logged-in user may view/edit a given task: the assigned
- * maker, an admin, or anyone (if the restrict-to-maker setting is off).
- * Callers must check is_user_logged_in() themselves first.
+ * maker or marketing guide, an admin, or — when the restrict-to-maker setting is
+ * off — an Editor and above. Callers must check is_user_logged_in() first.
  */
 function srt_user_can_access_task( $task_id ) {
-	if ( ! get_option( 'srt_restrict_to_maker', 1 ) || current_user_can( 'manage_options' ) ) {
+	if ( current_user_can( 'manage_options' ) ) {
 		return true;
 	}
 
-	$user_id          = get_current_user_id();
-	$maker_id         = (int) get_field( 'maker', $task_id );
-	$marketing_guide_id = (int) get_field( 'marketing_guide', $task_id );
+	$user_id = get_current_user_id();
 
-	return $user_id === $maker_id || $user_id === $marketing_guide_id;
+	if (
+		$user_id && (
+			$user_id === srt_get_assigned_user_id( 'maker', $task_id ) ||
+			$user_id === srt_get_assigned_user_id( 'marketing_guide', $task_id )
+		)
+	) {
+		return true;
+	}
+
+	// The restrict-to-maker setting exists so a manager can see the full picture,
+	// but the task page is an editable form — so switching it off opens the task
+	// to Editors and above, not to every logged-in user. Otherwise any Subscriber
+	// could rewrite a checklist, mark the task Completed and trigger its emails.
+	return ! get_option( 'srt_restrict_to_maker', 1 ) && current_user_can( 'edit_others_posts' );
+}
+
+/**
+ * Front-end /task/?task_id=# URL for a task, or '' when no task detail page is
+ * configured in the plugin settings.
+ */
+function srt_task_page_url( $task_id ) {
+	$task_page_id = (int) get_option( 'srt_task_page_id' );
+
+	if ( ! $task_page_id ) {
+		return '';
+	}
+
+	return add_query_arg( 'task_id', (int) $task_id, get_permalink( $task_page_id ) );
 }
 
 /**
  * "Maker: X | Marketing Guide: Y" line for a task, shared by the task page and the PDF views.
  */
 function srt_format_people_line( $task_id ) {
-	$maker_id           = get_field( 'maker', $task_id );
-	$marketing_guide_id = get_field( 'marketing_guide', $task_id );
+	$maker_id           = srt_get_assigned_user_id( 'maker', $task_id );
+	$marketing_guide_id = srt_get_assigned_user_id( 'marketing_guide', $task_id );
 
 	$maker_user = $maker_id ? get_userdata( $maker_id ) : false;
 	$mg_user    = $marketing_guide_id ? get_userdata( $marketing_guide_id ) : false;
@@ -92,6 +178,135 @@ function srt_format_people_line( $task_id ) {
  */
 function srt_default_executive_summary() {
 	return __( "This monthly review confirms the site's stability, security, and optimal performance. Key updates and scans were conducted, and the overall website health is in good standing. Minor issues were resolved as detailed below.", 'rw-site-review-tasks' );
+}
+
+/**
+ * Week-of-month choices for the weekday due-date rule.
+ */
+function srt_week_of_month_choices() {
+	return array(
+		'first'  => 'First',
+		'second' => 'Second',
+		'third'  => 'Third',
+		'fourth' => 'Fourth',
+		'last'   => 'Last',
+	);
+}
+
+/**
+ * Weekday choices for the weekday due-date rule. Keys double as the strtotime
+ * day names used by srt_weekday_date_in_month().
+ */
+function srt_weekday_choices() {
+	return array(
+		'monday'    => 'Monday',
+		'tuesday'   => 'Tuesday',
+		'wednesday' => 'Wednesday',
+		'thursday'  => 'Thursday',
+		'friday'    => 'Friday',
+		'saturday'  => 'Saturday',
+		'sunday'    => 'Sunday',
+	);
+}
+
+/**
+ * Resolves a week/weekday rule to a concrete date inside a given month, e.g.
+ * ('last', 'wednesday', '2026-08') => '2026-08-26'. Returns '' on bad input.
+ *
+ * @param string $week      first|second|third|fourth|last
+ * @param string $weekday   monday..sunday
+ * @param string $year_month 'Y-m'
+ */
+function srt_weekday_date_in_month( $week, $weekday, $year_month ) {
+	if ( ! isset( srt_week_of_month_choices()[ $week ] ) || ! isset( srt_weekday_choices()[ $weekday ] ) ) {
+		return '';
+	}
+
+	// PHP's relative format handles the month-boundary math, including "last"
+	// landing on the 4th or 5th occurrence depending on the month.
+	$timestamp = strtotime( "{$week} {$weekday} of {$year_month}-01" );
+
+	return $timestamp ? date( 'Y-m-d', $timestamp ) : '';
+}
+
+/**
+ * A company's due-date rule, normalized: mode plus the week/weekday when the
+ * mode is 'weekday'. Falls back to fixed_date for companies saved before the
+ * rule fields existed.
+ *
+ * @return array{mode:string,week:string,weekday:string}
+ */
+function srt_company_due_rule( $company_id ) {
+	$mode    = (string) get_field( 'due_date_mode', $company_id );
+	$week    = (string) get_field( 'due_week', $company_id );
+	$weekday = (string) get_field( 'due_weekday', $company_id );
+
+	if ( 'weekday' !== $mode || ! isset( srt_week_of_month_choices()[ $week ] ) || ! isset( srt_weekday_choices()[ $weekday ] ) ) {
+		return array( 'mode' => 'fixed_date', 'week' => '', 'weekday' => '' );
+	}
+
+	return array( 'mode' => 'weekday', 'week' => $week, 'weekday' => $weekday );
+}
+
+/**
+ * Snaps a date to a company's due-date rule without changing its month, so a
+ * hand-picked Next Due Date lands on the configured weekday. Fixed-date
+ * companies get the date back untouched.
+ */
+function srt_company_apply_due_rule( $company_id, $date ) {
+	$rule = srt_company_due_rule( $company_id );
+
+	if ( 'weekday' !== $rule['mode'] || ! $date ) {
+		return $date;
+	}
+
+	$resolved = srt_weekday_date_in_month( $rule['week'], $rule['weekday'], substr( $date, 0, 7 ) );
+
+	return $resolved ? $resolved : $date;
+}
+
+/**
+ * The due date one Review Interval after $date for a company.
+ *
+ * Fixed-date companies keep the calendar day. Weekday companies move forward
+ * the same number of months and then re-resolve the week/weekday rule, so
+ * "last Wednesday" stays the last Wednesday rather than drifting.
+ */
+function srt_company_advance_due_date( $company_id, $date, $months ) {
+	$months = max( 1, (int) $months );
+	$rule   = srt_company_due_rule( $company_id );
+
+	if ( 'weekday' === $rule['mode'] ) {
+		// Step months from the 1st so a 5-week month can't overflow into the
+		// month after next the way "2026-01-31 +1 month" does.
+		$next_month = date( 'Y-m', strtotime( substr( $date, 0, 7 ) . "-01 +{$months} months" ) );
+		$resolved   = srt_weekday_date_in_month( $rule['week'], $rule['weekday'], $next_month );
+
+		if ( $resolved ) {
+			return $resolved;
+		}
+	}
+
+	return date( 'Y-m-d', strtotime( "{$date} +{$months} months" ) );
+}
+
+/**
+ * Human-readable due-date rule for admin listings, e.g. "Last Wednesday".
+ * Returns '' for fixed-date companies, which need no explanation.
+ */
+function srt_company_due_rule_label( $company_id ) {
+	$rule = srt_company_due_rule( $company_id );
+
+	if ( 'weekday' !== $rule['mode'] ) {
+		return '';
+	}
+
+	return sprintf(
+		/* translators: 1: week of month (e.g. Last), 2: weekday (e.g. Wednesday) */
+		__( '%1$s %2$s', 'rw-site-review-tasks' ),
+		srt_week_of_month_choices()[ $rule['week'] ],
+		srt_weekday_choices()[ $rule['weekday'] ]
+	);
 }
 
 /**
@@ -202,13 +417,62 @@ function srt_register_acf_fields() {
 					'allow_null'    => 0,
 				),
 				array(
+					'key'           => 'field_srt_company_due_mode',
+					'label'         => 'Due Date Rule',
+					'name'          => 'due_date_mode',
+					'type'          => 'select',
+					'choices'       => array(
+						'fixed_date' => 'Same date each interval (e.g. the 15th)',
+						'weekday'    => 'Same weekday each interval (e.g. last Wednesday)',
+					),
+					'default_value' => 'fixed_date',
+					'allow_null'    => 0,
+					'instructions'  => 'How the Next Due Date advances after each task is created.',
+				),
+				array(
+					'key'               => 'field_srt_company_due_week',
+					'label'             => 'Week',
+					'name'              => 'due_week',
+					'type'              => 'select',
+					'choices'           => srt_week_of_month_choices(),
+					'default_value'     => 'last',
+					'allow_null'        => 0,
+					'conditional_logic' => array(
+						array(
+							array(
+								'field'    => 'field_srt_company_due_mode',
+								'operator' => '==',
+								'value'    => 'weekday',
+							),
+						),
+					),
+				),
+				array(
+					'key'               => 'field_srt_company_due_weekday',
+					'label'             => 'Weekday',
+					'name'              => 'due_weekday',
+					'type'              => 'select',
+					'choices'           => srt_weekday_choices(),
+					'default_value'     => 'wednesday',
+					'allow_null'        => 0,
+					'conditional_logic' => array(
+						array(
+							array(
+								'field'    => 'field_srt_company_due_mode',
+								'operator' => '==',
+								'value'    => 'weekday',
+							),
+						),
+					),
+				),
+				array(
 					'key'            => 'field_srt_company_due_date',
 					'label'          => 'Next Due Date',
 					'name'           => 'due_date',
 					'type'           => 'date_picker',
 					'display_format' => 'Y-m-d',
 					'return_format'  => 'Y-m-d',
-					'instructions'   => 'The plugin advances this automatically by one Review Interval each time a task is created.',
+					'instructions'   => 'The plugin advances this automatically by one Review Interval each time a task is created. When the Due Date Rule is set to a weekday, the date you save here is snapped to the matching weekday in that same month.',
 				),
 				array(
 					'key'           => 'field_srt_company_lead_days',

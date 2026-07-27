@@ -214,13 +214,13 @@ class SRT_Cron {
 	private static function advance_due_date( $company_id, $due_date ) {
 		$interval = get_field( 'interval', $company_id );
 		$months   = isset( self::INTERVAL_MONTHS[ $interval ] ) ? self::INTERVAL_MONTHS[ $interval ] : 1;
-		$next_due = date( 'Y-m-d', strtotime( "{$due_date} +{$months} months" ) );
+		$next_due = srt_company_advance_due_date( $company_id, $due_date, $months );
 
 		update_field( 'due_date', $next_due, $company_id );
 	}
 
 	private static function notify_maker( $company_id, $task_id ) {
-		$maker_id = (int) get_field( 'maker', $company_id );
+		$maker_id = srt_get_assigned_user_id( 'maker', $company_id );
 
 		if ( ! $maker_id ) {
 			return;
@@ -232,19 +232,52 @@ class SRT_Cron {
 			return;
 		}
 
-		$task_page_id = (int) get_option( 'srt_task_page_id' );
-		$link         = $task_page_id ? add_query_arg( 'task_id', $task_id, get_permalink( $task_page_id ) ) : '';
 		$company_name = get_the_title( $company_id );
+		$period       = get_field( 'period', $task_id );
 
-		$subject = sprintf( __( '%s: review task ready', 'rw-site-review-tasks' ), $company_name );
-		$message = sprintf(
-			/* translators: 1: company name, 2: task link */
-			__( "A new website review task for %1\$s is ready.\n\n%2\$s", 'rw-site-review-tasks' ),
-			$company_name,
-			$link
+		$paragraphs = array(
+			sprintf(
+				/* translators: 1: recipient first name, 2: company name */
+				__( 'Hi %1$s, a new website review task for %2$s is ready for you.', 'rw-site-review-tasks' ),
+				self::greeting_name( $user ),
+				$company_name
+			),
 		);
 
-		wp_mail( $user->user_email, $subject, $message );
+		if ( $period ) {
+			$paragraphs[] = sprintf(
+				/* translators: %s: review period date */
+				__( 'Review period: %s', 'rw-site-review-tasks' ),
+				$period
+			);
+		}
+
+		$paragraphs[] = __( 'Work through the checklist on the task page, then set the status to Completed when you are finished.', 'rw-site-review-tasks' );
+
+		SRT_Mailer::send(
+			$user->user_email,
+			sprintf(
+				/* translators: %s: company name */
+				__( '%s: website review task ready', 'rw-site-review-tasks' ),
+				$company_name
+			),
+			sprintf(
+				/* translators: %s: company name */
+				__( 'Review task ready for %s', 'rw-site-review-tasks' ),
+				$company_name
+			),
+			$paragraphs,
+			srt_task_page_url( $task_id ),
+			__( 'Open the review task', 'rw-site-review-tasks' )
+		);
+	}
+
+	/**
+	 * First name when we have one, display name otherwise — a named greeting reads
+	 * less like bulk mail to both people and spam filters.
+	 */
+	private static function greeting_name( $user ) {
+		return $user->first_name ? $user->first_name : $user->display_name;
 	}
 
 	/**
@@ -258,22 +291,25 @@ class SRT_Cron {
 		}
 
 		$company_name = get_the_title( $company_id );
-		$task_page_id = (int) get_option( 'srt_task_page_id' );
-		$link         = $task_page_id ? add_query_arg( 'task_id', $task_id, get_permalink( $task_page_id ) ) : '';
+		$link         = srt_task_page_url( $task_id );
+		$period       = get_field( 'period', $task_id );
 
-		$subject = sprintf( __( '%s: review task completed', 'rw-site-review-tasks' ), $company_name );
-		$message = sprintf(
-			/* translators: 1: company name, 2: task link */
-			__( "The website review task for %1\$s has been marked Completed.\n\n%2\$s", 'rw-site-review-tasks' ),
-			$company_name,
-			$link
+		$subject = sprintf(
+			/* translators: %s: company name */
+			__( '%s: website review task completed', 'rw-site-review-tasks' ),
+			$company_name
+		);
+		$heading = sprintf(
+			/* translators: %s: company name */
+			__( 'Review task completed for %s', 'rw-site-review-tasks' ),
+			$company_name
 		);
 
 		$recipient_ids = array_unique(
 			array_filter(
 				array(
-					(int) get_field( 'maker', $task_id ),
-					(int) get_field( 'marketing_guide', $task_id ),
+					srt_get_assigned_user_id( 'maker', $task_id ),
+					srt_get_assigned_user_id( 'marketing_guide', $task_id ),
 				)
 			)
 		);
@@ -281,9 +317,37 @@ class SRT_Cron {
 		foreach ( $recipient_ids as $user_id ) {
 			$user = get_userdata( $user_id );
 
-			if ( $user && $user->user_email ) {
-				wp_mail( $user->user_email, $subject, $message );
+			if ( ! $user || ! $user->user_email ) {
+				continue;
 			}
+
+			$paragraphs = array(
+				sprintf(
+					/* translators: 1: recipient first name, 2: company name */
+					__( 'Hi %1$s, the website review task for %2$s has been marked Completed.', 'rw-site-review-tasks' ),
+					self::greeting_name( $user ),
+					$company_name
+				),
+			);
+
+			if ( $period ) {
+				$paragraphs[] = sprintf(
+					/* translators: %s: review period date */
+					__( 'Review period: %s', 'rw-site-review-tasks' ),
+					$period
+				);
+			}
+
+			$paragraphs[] = __( 'The full report, including the site scan results, is on the task page.', 'rw-site-review-tasks' );
+
+			SRT_Mailer::send(
+				$user->user_email,
+				$subject,
+				$heading,
+				$paragraphs,
+				$link,
+				__( 'View the completed task', 'rw-site-review-tasks' )
+			);
 		}
 	}
 

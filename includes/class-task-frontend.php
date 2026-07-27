@@ -25,13 +25,21 @@ class SRT_Task_Frontend {
 		$task_id = isset( $_REQUEST['task_id'] ) ? absint( $_REQUEST['task_id'] ) : 0;
 		self::$task_id = $task_id;
 
-		if ( ! $task_id || SRT_CPT_Task::POST_TYPE !== get_post_type( $task_id ) ) {
+		if ( ! $task_id ) {
 			self::$access_error = 'invalid';
 			return;
 		}
 
+		// Authenticate before the post-type check, so an anonymous visitor can't
+		// tell a real review task ("please log in") from any other post ID ("task
+		// not found") and enumerate them.
 		if ( ! is_user_logged_in() ) {
 			self::$access_error = 'login';
+			return;
+		}
+
+		if ( SRT_CPT_Task::POST_TYPE !== get_post_type( $task_id ) ) {
+			self::$access_error = 'invalid';
 			return;
 		}
 
