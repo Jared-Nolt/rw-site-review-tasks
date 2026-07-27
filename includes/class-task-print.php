@@ -108,10 +108,41 @@ class SRT_Task_Print {
 					-webkit-print-color-adjust: exact;
 					print-color-adjust: exact;
 				}
+				/*
+				 * Page-break plumbing. A position: fixed footer repeats on every
+				 * printed page but reserves no space in the flow, and Chrome clips
+				 * it to the page area so it can't be pushed into an @page margin.
+				 * Text therefore ran underneath the footer band at every page
+				 * break. The fix splits the two jobs: an invisible <tfoot> spacer
+				 * reserves the band on every page — table footers repeat per page
+				 * fragment and do occupy flow space — while .rw-footer keeps
+				 * painting the visible band at the bottom of each page, including
+				 * the last one, where a real <tfoot> would float up under the
+				 * content instead.
+				 */
+				.rw-flow {
+					width: 100%;
+					border-collapse: collapse;
+				}
+				.rw-flow > tbody > tr > td,
+				.rw-flow > tfoot > tr > td {
+					padding: 0;
+					border: 0;
+					vertical-align: top;
+				}
+				.rw-flow-spacer { height: 1.15in; } /* must match .rw-footer height */
+
 				.rw-page {
 					max-width: 8.5in;
 					margin: 0 auto;
-					padding: 0.9in 0.95in 1.9in;
+					/*
+					 * Top padding is the first page's extra offset only; @page
+					 * margin-top supplies the 0.55in that every page gets, so page
+					 * one totals the original 0.9in. Bottom padding is gone — the
+					 * <tfoot> spacer reserves that space now, on every page rather
+					 * than just after the final line.
+					 */
+					padding: 0.35in 0.95in 0;
 				}
 				.rw-title {
 					font-family: "Open Sans", Arial, Helvetica, sans-serif;
@@ -294,8 +325,17 @@ class SRT_Task_Print {
 				}
 				.rw-actions button:hover { background: #8f2634; }
 
+				@media screen {
+					/* Keep the on-screen preview's original top offset, since
+					   @page margins only apply when printing. */
+					.rw-page { padding-top: 0.9in; }
+				}
+
 				@media print {
-					@page { margin: 0; }
+					/* Top margin repeats on every page, so continuation pages no
+					   longer start hard against the sheet edge. Sides and bottom
+					   stay at zero to keep the footer band full-bleed. */
+					@page { margin: 0.55in 0 0; }
 					.rw-actions { display: none; }
 					.rw-page { max-width: none; }
 				}
@@ -305,6 +345,14 @@ class SRT_Task_Print {
 			<div class="rw-actions">
 				<button onclick="window.print()" type="button"><?php esc_html_e( 'Print / Save as PDF', 'rw-site-review-tasks' ); ?></button>
 			</div>
+
+			<?php /* See .rw-flow in the stylesheet: the tfoot reserves the footer band on every page. */ ?>
+			<table class="rw-flow" role="presentation">
+				<tfoot>
+					<tr><td class="rw-flow-spacer"></td></tr>
+				</tfoot>
+				<tbody>
+				<tr><td>
 
 			<div class="rw-page">
 				<h1 class="rw-title"><?php echo esc_html( get_the_title( $company_id ) ); ?></h1>
@@ -362,6 +410,10 @@ class SRT_Task_Print {
 					</div>
 				<?php endif; ?>
 			</div>
+
+				</td></tr>
+				</tbody>
+			</table>
 
 			<div class="rw-footer" aria-hidden="true">
 				<div class="rw-footer-bar">

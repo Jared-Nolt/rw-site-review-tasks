@@ -69,6 +69,9 @@ report. Depends on **Advanced Custom Fields PRO** (field groups are registered i
 - **Two variants:** standard (`srt_print_task`) and Marketing-Guide (`srt_print_task_mg`). Extra Notes and the Site Scan Results section are MG-only.
 - Site Scan Results on the MG report render **collapsed** (`render_results_html($scan, true)`) — folded `<details>`; a browser-saved PDF shows only the summary bars.
 - Download filename comes from `<title>`: `{Period|today}-{Company-Name}-Website-Health-Security-Report`.
+- **Page-break plumbing — don't "simplify" the `<table class="rw-flow">` wrapper away.** It exists because a `position: fixed` footer repeats on every printed page but reserves **no** space in the flow, so content ran underneath the footer band at every page break. Chrome also clips fixed elements to the page area, so the footer cannot be pushed into an `@page` margin (verified: a negative `bottom` simply doesn't paint). The two jobs are therefore split: the invisible `<tfoot>` spacer **reserves** the band on every page (table footers repeat per page fragment *and* occupy flow space), while `.rw-footer` **paints** it — a real `<tfoot>` would float up under the content on the final page instead of sitting at the bottom. `.rw-flow-spacer`'s height must stay in sync with `.rw-footer`'s.
+- `@page { margin: 0.55in 0 0 }` supplies the top margin every page gets, so continuation pages don't start against the sheet edge; `.rw-page`'s `padding-top` is only page one's extra offset (the two sum to the original 0.9in). Sides and bottom stay at 0 to keep the footer band full-bleed.
+- **The footer page number is hardcoded `1`** and therefore wrong on multi-page reports. Real numbering needs `counter(page)` in an `@page` margin box, which Chrome doesn't support.
 
 ## External integrations (all optional, keys in Settings)
 
