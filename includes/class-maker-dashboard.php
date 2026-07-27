@@ -33,13 +33,12 @@ class SRT_Maker_Dashboard {
 			'post_status'    => 'publish',
 		);
 
-		if ( get_option( 'srt_restrict_to_maker', 1 ) ) {
-			$args['meta_query'] = array(
-				array(
-					'key'   => 'maker',
-					'value' => $user_id,
-				),
-			);
+		// Marketing guides see the companies they're assigned to alongside makers —
+		// the same set srt_user_can_access_task() lets them open. Uses the shared
+		// see-everything rule so the dashboard can never list a company whose task
+		// the user would then be denied.
+		if ( ! srt_user_can_see_all_tasks() ) {
+			$args['meta_query'] = srt_assigned_to_user_meta_query( $user_id );
 		}
 
 		$companies = get_posts( $args );

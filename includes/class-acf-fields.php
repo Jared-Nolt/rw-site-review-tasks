@@ -113,31 +113,87 @@ function srt_get_assigned_user_id( $field, $post_id ) {
 }
 
 /**
- * Whether the current logged-in user may view/edit a given task: the assigned
- * maker or marketing guide, an admin, or — when the restrict-to-maker setting is
- * off — an Editor and above. Callers must check is_user_logged_in() first.
+ * Whether the current user sees every company and task rather than only their own
+ * assignments: admins always, plus Editors and above once the restrict-to-maker
+ * setting is switched off.
+ *
+ * The setting exists so a manager can see the full picture, but the task page is
+ * an editable form — so switching it off opens things to Editors and above, not
+ * to every logged-in user. Otherwise any Subscriber could rewrite a checklist,
+ * mark a task Completed and trigger its emails.
+ *
+ * Shared by the task page and the dashboard so both apply the same rule.
+ */
+function srt_user_can_see_all_tasks() {
+	if ( current_user_can( 'manage_options' ) ) {
+		return true;
+	}
+
+	return ! get_option( 'srt_restrict_to_maker', 1 ) && current_user_can( 'edit_others_posts' );
+}
+
+/**
+ * Whether a user is named as either the maker or the marketing guide on a given
+ * company or task.
+ */
+function srt_user_is_assigned_to( $user_id, $post_id ) {
+	$user_id = (int) $user_id;
+
+	if ( ! $user_id || ! $post_id ) {
+		return false;
+	}
+
+	return $user_id === srt_get_assigned_user_id( 'maker', $post_id )
+		|| $user_id === srt_get_assigned_user_id( 'marketing_guide', $post_id );
+}
+
+/**
+ * Whether the current logged-in user may view/edit a given task: named on the
+ * task, named on the task's company, or covered by srt_user_can_see_all_tasks().
+ * Callers must check is_user_logged_in() first.
+ *
+ * Assignment is what grants access, not role — makers and marketing guides are
+ * ordinarily Subscribers with no capabilities beyond `read`.
+ *
+ * The fall-through to the company matters because a task snapshots its maker and
+ * marketing guide at creation time. Tasks created before someone was assigned
+ * carry no marketing guide at all, and reassigning a company leaves its existing
+ * tasks pointing at the previous person — so without this, the current marketing
+ * guide could not open their own client's earlier reports. It also keeps the
+ * dashboard honest: that query is company-level, so it would otherwise list a
+ * company whose task the user is then denied.
  */
 function srt_user_can_access_task( $task_id ) {
-	if ( current_user_can( 'manage_options' ) ) {
+	if ( srt_user_can_see_all_tasks() ) {
 		return true;
 	}
 
 	$user_id = get_current_user_id();
 
-	if (
-		$user_id && (
-			$user_id === srt_get_assigned_user_id( 'maker', $task_id ) ||
-			$user_id === srt_get_assigned_user_id( 'marketing_guide', $task_id )
-		)
-	) {
+	if ( srt_user_is_assigned_to( $user_id, $task_id ) ) {
 		return true;
 	}
 
-	// The restrict-to-maker setting exists so a manager can see the full picture,
-	// but the task page is an editable form — so switching it off opens the task
-	// to Editors and above, not to every logged-in user. Otherwise any Subscriber
-	// could rewrite a checklist, mark the task Completed and trigger its emails.
-	return ! get_option( 'srt_restrict_to_maker', 1 ) && current_user_can( 'edit_others_posts' );
+	return srt_user_is_assigned_to( $user_id, (int) get_field( 'company', $task_id ) );
+}
+
+/**
+ * meta_query matching companies or tasks assigned to a user as either the maker
+ * or the marketing guide. Both roles get the same visibility over the records
+ * they're named on.
+ */
+function srt_assigned_to_user_meta_query( $user_id ) {
+	return array(
+		'relation' => 'OR',
+		array(
+			'key'   => 'maker',
+			'value' => $user_id,
+		),
+		array(
+			'key'   => 'marketing_guide',
+			'value' => $user_id,
+		),
+	);
 }
 
 /**
