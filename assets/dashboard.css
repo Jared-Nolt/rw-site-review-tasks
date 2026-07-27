@@ -120,7 +120,9 @@
 	margin-bottom: 0.4rem;
 	padding: 0;
 }
-
+.srt-checklist-item label{
+	width: 100%;
+}
 .srt-checklist-choice {
 	display: inline-block;
 	margin-right: 1.25rem;
@@ -128,7 +130,7 @@
 
 .srt-checklist-textarea {
 	width: 100%;
-	max-width: 480px;
+	max-width: unset;
 }
 
 .srt-checklist-submit {
