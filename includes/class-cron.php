@@ -281,27 +281,37 @@ class SRT_Cron {
 	}
 
 	/**
-	 * Emails the assigned maker and marketing guide when a task is saved as Completed.
+	 * Emails the assigned maker and marketing guide when a task's status is
+	 * saved as Completed or Needs Work. Both statuses are treated the same way
+	 * — same recipients, same mechanics — only the wording differs.
+	 *
+	 * @param int    $task_id The task post ID.
+	 * @param string $status  'completed' or 'needs_work'.
 	 */
-	public static function notify_completed( $task_id ) {
+	public static function notify_status_change( $task_id, $status ) {
 		$company_id = get_field( 'company', $task_id );
 
 		if ( ! $company_id ) {
 			return;
 		}
 
+		$is_completed = 'completed' === $status;
 		$company_name = get_the_title( $company_id );
 		$link         = srt_task_page_url( $task_id );
 		$period       = get_field( 'period', $task_id );
 
 		$subject = sprintf(
 			/* translators: %s: company name */
-			__( '%s: website review task completed', 'rw-site-review-tasks' ),
+			$is_completed
+				? __( '%s: website review task completed', 'rw-site-review-tasks' )
+				: __( '%s: website review task needs work', 'rw-site-review-tasks' ),
 			$company_name
 		);
 		$heading = sprintf(
 			/* translators: %s: company name */
-			__( 'Review task completed for %s', 'rw-site-review-tasks' ),
+			$is_completed
+				? __( 'Review task completed for %s', 'rw-site-review-tasks' )
+				: __( 'Review task needs work for %s', 'rw-site-review-tasks' ),
 			$company_name
 		);
 
@@ -324,7 +334,9 @@ class SRT_Cron {
 			$paragraphs = array(
 				sprintf(
 					/* translators: 1: recipient first name, 2: company name */
-					__( 'Hi %1$s, the website review task for %2$s has been marked Completed.', 'rw-site-review-tasks' ),
+					$is_completed
+						? __( 'Hi %1$s, the website review task for %2$s has been marked Completed.', 'rw-site-review-tasks' )
+						: __( 'Hi %1$s, the website review task for %2$s has been marked Needs Work.', 'rw-site-review-tasks' ),
 					self::greeting_name( $user ),
 					$company_name
 				),
@@ -338,7 +350,9 @@ class SRT_Cron {
 				);
 			}
 
-			$paragraphs[] = __( 'The full report, including the site scan results, is on the task page.', 'rw-site-review-tasks' );
+			$paragraphs[] = $is_completed
+				? __( 'The full report, including the site scan results, is on the task page.', 'rw-site-review-tasks' )
+				: __( 'See the task page for details on what still needs attention.', 'rw-site-review-tasks' );
 
 			SRT_Mailer::send(
 				$user->user_email,
@@ -346,7 +360,9 @@ class SRT_Cron {
 				$heading,
 				$paragraphs,
 				$link,
-				__( 'View the completed task', 'rw-site-review-tasks' )
+				$is_completed
+					? __( 'View the completed task', 'rw-site-review-tasks' )
+					: __( 'View the task', 'rw-site-review-tasks' )
 			);
 		}
 	}

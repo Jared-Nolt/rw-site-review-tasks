@@ -65,12 +65,24 @@ class SRT_Admin_Settings {
 			$reply_to = isset( $_POST['srt_mail_reply_to'] ) ? sanitize_email( wp_unslash( $_POST['srt_mail_reply_to'] ) ) : '';
 			update_option( SRT_Mailer::REPLY_TO_OPT, is_email( $reply_to ) ? $reply_to : '' );
 
+			// Blank clears it — the webhook simply stays inert until a URL is set.
+			$webhook_url = isset( $_POST['srt_webhook_url'] ) ? esc_url_raw( wp_unslash( $_POST['srt_webhook_url'] ) ) : '';
+			update_option( SRT_Webhook::URL_OPT, $webhook_url );
+
+			$webhook_secret = isset( $_POST['srt_webhook_secret'] ) ? sanitize_text_field( wp_unslash( $_POST['srt_webhook_secret'] ) ) : '';
+			update_option( SRT_Webhook::SECRET_OPT, $webhook_secret );
+
 			wp_safe_redirect( self::page_url( 'saved' ) );
 			exit;
 		}
 
 		if ( isset( $_POST['srt_send_test_email'] ) && check_admin_referer( 'srt_test_email', 'srt_test_email_nonce' ) ) {
 			wp_safe_redirect( self::page_url( self::send_test_email() ) );
+			exit;
+		}
+
+		if ( isset( $_POST['srt_send_test_webhook'] ) && check_admin_referer( 'srt_test_webhook', 'srt_test_webhook_nonce' ) ) {
+			wp_safe_redirect( self::page_url( self::send_test_webhook() ) );
 			exit;
 		}
 	}
@@ -115,6 +127,30 @@ class SRT_Admin_Settings {
 		}
 
 		return 'test_failed';
+	}
+
+	/**
+	 * Posts a sample "task completed" payload to the configured webhook URL so
+	 * an admin can verify the URL and secret without waiting for a real task.
+	 *
+	 * @return string Notice key for the redirect.
+	 */
+	private static function send_test_webhook() {
+		if ( ! trim( (string) get_option( SRT_Webhook::URL_OPT, '' ) ) ) {
+			return 'webhook_no_url';
+		}
+
+		if ( SRT_Webhook::send_test() ) {
+			return 'webhook_test_sent';
+		}
+
+		$error = SRT_Webhook::last_error();
+
+		if ( $error ) {
+			set_transient( 'srt_test_webhook_error', $error, 60 );
+		}
+
+		return 'webhook_test_failed';
 	}
 
 	private static function page_url( $notice ) {
@@ -172,6 +208,25 @@ class SRT_Admin_Settings {
 
 			<?php if ( 'test_no_address' === $notice ) : ?>
 				<div class="notice notice-error is-dismissible"><p><?php esc_html_e( 'Your user account has no valid email address, so there is nowhere to send the test.', 'rw-site-review-tasks' ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( 'webhook_test_sent' === $notice ) : ?>
+				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Test webhook sent — the receiving server accepted it (2xx response).', 'rw-site-review-tasks' ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( 'webhook_test_failed' === $notice ) : ?>
+				<?php $webhook_test_error = get_transient( 'srt_test_webhook_error' ); ?>
+				<div class="notice notice-error is-dismissible">
+					<p><?php esc_html_e( 'The test webhook could not be delivered.', 'rw-site-review-tasks' ); ?></p>
+					<?php if ( $webhook_test_error ) : ?>
+						<p><code><?php echo esc_html( $webhook_test_error ); ?></code></p>
+					<?php endif; ?>
+				</div>
+				<?php delete_transient( 'srt_test_webhook_error' ); ?>
+			<?php endif; ?>
+
+			<?php if ( 'webhook_no_url' === $notice ) : ?>
+				<div class="notice notice-error is-dismissible"><p><?php esc_html_e( 'Add a webhook URL below and save settings before sending a test.', 'rw-site-review-tasks' ); ?></p></div>
 			<?php endif; ?>
 
 			<h2><?php esc_html_e( 'Pages & Access', 'rw-site-review-tasks' ); ?></h2>
@@ -313,6 +368,26 @@ class SRT_Admin_Settings {
 						</td>
 					</tr>
 					<tr>
+						<th scope="row"><label for="srt_webhook_url"><?php esc_html_e( 'Webhook URL', 'rw-site-review-tasks' ); ?></label></th>
+						<td>
+							<input type="url" name="srt_webhook_url" id="srt_webhook_url" value="<?php echo esc_attr( get_option( SRT_Webhook::URL_OPT, '' ) ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'https://hooks.zapier.com/…', 'rw-site-review-tasks' ); ?>" />
+							<p class="description">
+								<?php esc_html_e( 'When a task is saved as Completed or Needs Work, this site POSTs a JSON payload here — a Zapier or Make webhook trigger, an n8n workflow, a Slack incoming webhook, or a CRM endpoint. Leave blank to disable; nothing is sent anywhere until a URL is saved.', 'rw-site-review-tasks' ); ?>
+							</p>
+							<p class="description">
+								<?php esc_html_e( 'Payload fields: event, task_id, status ("completed" or "needs_work"), status_label, previous_status, company_id, company_name, period, task_url, site, timestamp.', 'rw-site-review-tasks' ); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="srt_webhook_secret"><?php esc_html_e( 'Webhook signing secret', 'rw-site-review-tasks' ); ?></label></th>
+						<td>
+							<input type="password" name="srt_webhook_secret" id="srt_webhook_secret" value="<?php echo esc_attr( get_option( SRT_Webhook::SECRET_OPT, '' ) ); ?>" class="regular-text" autocomplete="off" spellcheck="false" placeholder="<?php esc_attr_e( 'Optional', 'rw-site-review-tasks' ); ?>" />
+							<button type="button" class="button button-secondary srt-toggle-secret" data-target="srt_webhook_secret" aria-pressed="false"><?php esc_html_e( 'Show', 'rw-site-review-tasks' ); ?></button>
+							<p class="description"><?php esc_html_e( 'Optional. If set, requests carry an X-SRT-Signature header — an HMAC-SHA256 of the raw JSON body, keyed with this secret — so the receiving endpoint can verify the request came from this site.', 'rw-site-review-tasks' ); ?></p>
+						</td>
+					</tr>
+					<tr>
 						<th scope="row"><label for="srt_log_retention_days"><?php esc_html_e( 'Run log retention', 'rw-site-review-tasks' ); ?></label></th>
 						<td>
 							<input type="number" name="srt_log_retention_days" id="srt_log_retention_days" min="0" step="1" value="<?php echo esc_attr( get_option( 'srt_log_retention_days', SRT_Cron::LOG_RETENTION_DEFAULT ) ); ?>" class="small-text" />
@@ -387,6 +462,20 @@ class SRT_Admin_Settings {
 						);
 						?>
 					</span>
+				</p>
+			</form>
+
+			<hr />
+
+			<h2><?php esc_html_e( 'Integrations', 'rw-site-review-tasks' ); ?></h2>
+			<p class="description" style="max-width:44rem;">
+				<?php esc_html_e( 'When a task is saved as Completed or Needs Work, this site can POST a JSON payload to a URL of your choosing — a Zapier or Make webhook trigger, an n8n workflow, a Slack incoming webhook, or a CRM endpoint. Configure the URL and secret in "Pages & Access" above; no further changes here are needed to add or change a destination, that happens on the receiving side.', 'rw-site-review-tasks' ); ?>
+			</p>
+			<form method="post">
+				<?php wp_nonce_field( 'srt_test_webhook', 'srt_test_webhook_nonce' ); ?>
+				<p>
+					<button type="submit" name="srt_send_test_webhook" value="1" class="button"><?php esc_html_e( 'Send test webhook', 'rw-site-review-tasks' ); ?></button>
+					<span class="description"><?php esc_html_e( 'Posts a sample "completed" payload to the currently saved webhook URL.', 'rw-site-review-tasks' ); ?></span>
 				</p>
 			</form>
 

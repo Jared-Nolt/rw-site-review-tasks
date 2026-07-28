@@ -58,7 +58,7 @@ report. Depends on **Advanced Custom Fields PRO** (field groups are registered i
 ## Notification email (`class-mailer.php`)
 
 - **Never call `wp_mail()` directly** for notifications — go through `SRT_Mailer::send( $to, $subject, $heading, $paragraphs, $cta_url, $cta_label )` so every message gets the same From/Reply-To, HTML + plain-text parts, and aligned envelope sender.
-- Two notifications, both in `class-cron.php`: `notify_maker()` (task created) and `notify_completed()` (status saved as Completed → maker + marketing guide, sent individually).
+- Two notifications, both in `class-cron.php`: `notify_maker()` (task created) and `notify_status_change()` (status saved as Completed **or** Needs Work → maker + marketing guide, sent individually; wording branches on `$status` but the mechanics are identical for both).
 - **Deliverability split:** the plugin controls the From address, the multipart body, and Return-Path alignment. It cannot control the transport or DNS — authenticated SMTP (Kinsta does not deliver PHP `mail()`) plus SPF/DKIM/DMARC on the sending domain are required, and the Settings page says so.
 - `is_from_aligned()` warns on the settings screen when the From domain isn't the site domain or a subdomain of it (relaxed DMARC alignment).
 
@@ -78,6 +78,13 @@ report. Depends on **Advanced Custom Fields PRO** (field groups are registered i
 - **W3C Nu HTML validator** — free, no key.
 - **WAVE** accessibility — `srt_wave_api_key`.
 - **Google PageSpeed Insights** — `srt_psi_api_key` (optional; keyless works but is rate-limited). One key for all sites; per-company toggle `psi_enabled` + `psi_strategy`. Runs on the homepage only.
+
+## Outbound webhook (`class-webhook.php`)
+
+- `class-task-frontend.php` fires `do_action( 'srt_task_status_changed', $task_id, $status, $old_status )` whenever a task's status is saved as `completed` or `needs_work` and actually changed. `SRT_Webhook::handle_status_change()` is the only listener today, but any other plugin/mu-plugin can hook the same action to sync elsewhere without touching this plugin.
+- Inert until `srt_webhook_url` (Settings → Integrations) is set. `SRT_Webhook::send()` POSTs JSON via `wp_remote_post()`; if `srt_webhook_secret` is also set, the request carries `X-SRT-Signature: hash_hmac( 'sha256', $raw_body, $secret )`.
+- Payload shape (`build_payload()`): `event`, `task_id`, `status`, `status_label`, `previous_status`, `company_id`, `company_name`, `period`, `task_url`, `site`, `timestamp`.
+- `SRT_Webhook::send_test()` posts a sample `completed` payload — wired to the "Send test webhook" button on the Settings page, mirroring the existing "Send test email" pattern.
 
 ## Gotchas
 

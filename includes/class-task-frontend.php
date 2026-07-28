@@ -113,8 +113,19 @@ class SRT_Task_Frontend {
 			if ( in_array( $status, array( 'completed', 'needs_work' ), true ) ) {
 				update_field( 'status', $status, $task_id );
 
-				if ( 'completed' === $status && 'completed' !== $old_status ) {
-					SRT_Cron::notify_completed( $task_id );
+				if ( $status !== $old_status ) {
+					SRT_Cron::notify_status_change( $task_id, $status );
+
+					/**
+					 * Fires whenever a task's status is saved as Completed or Needs
+					 * Work. Hook this to sync the result to another platform (a
+					 * webhook, CRM, Slack, etc.) without touching this plugin.
+					 *
+					 * @param int    $task_id    The task post ID.
+					 * @param string $status     New status: 'completed' or 'needs_work'.
+					 * @param mixed  $old_status Previous status value (may be '' or false).
+					 */
+					do_action( 'srt_task_status_changed', $task_id, $status, $old_status );
 				}
 			}
 		}

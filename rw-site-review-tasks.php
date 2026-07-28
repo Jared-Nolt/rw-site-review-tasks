@@ -23,6 +23,7 @@ require_once SRT_PLUGIN_DIR . 'includes/class-cpt-checklist.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-acf-fields.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-roles.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-mailer.php';
+require_once SRT_PLUGIN_DIR . 'includes/class-webhook.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-cron.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-site-scanner.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-admin-settings.php';
