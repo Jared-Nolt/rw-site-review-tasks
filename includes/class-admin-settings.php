@@ -289,6 +289,15 @@ class SRT_Admin_Settings {
 								);
 								?>
 							</p>
+							<p class="description">
+								<?php
+								printf(
+									/* translators: %d: seconds between staggered scans */
+									esc_html__( 'If several companies are due the same day, their site scans are staggered %d seconds apart automatically (rather than all firing at once) to avoid overloading the WAVE/PageSpeed APIs and the server. No action needed here.', 'rw-site-review-tasks' ),
+									(int) SRT_Cron::SCAN_STAGGER_SECONDS
+								);
+								?>
+							</p>
 						</td>
 					</tr>
 					<tr>

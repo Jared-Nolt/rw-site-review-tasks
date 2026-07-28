@@ -18,11 +18,17 @@ class SRT_Site_Scanner {
 	}
 
 	/**
-	 * Schedules the scan to run 60 seconds after task creation so it doesn't
+	 * Schedules the scan to run some seconds after task creation so it doesn't
 	 * block the cron that created the task.
+	 *
+	 * $delay defaults to 60s (a single manual "Create review task now" run).
+	 * The daily batch check passes a larger, per-company delay so that when
+	 * several companies share a due date, their scans — each several outbound
+	 * HTTP calls, one with up to a 60s timeout — don't all land on the same
+	 * WP-Cron pass. See SRT_Cron::run_daily_check().
 	 */
-	public static function schedule( $task_id ) {
-		wp_schedule_single_event( time() + 60, self::CRON_HOOK, array( $task_id ) );
+	public static function schedule( $task_id, $delay = 60 ) {
+		wp_schedule_single_event( time() + max( 1, (int) $delay ), self::CRON_HOOK, array( $task_id ) );
 	}
 
 	// -------------------------------------------------------------------------

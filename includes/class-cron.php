@@ -12,6 +12,17 @@ class SRT_Cron {
 	// Default Run log retention in days; overridable via the srt_log_retention_days option. 0 = keep until the LOG_CAP count limit.
 	const LOG_RETENTION_DEFAULT = 90;
 
+	/**
+	 * How many seconds apart to stagger each company's site scan when several
+	 * are created in the same daily check. A scan makes several sequential
+	 * outbound calls per page (link check, W3C validator, WAVE, and — once,
+	 * on the homepage — PageSpeed Insights at up to a 60s timeout), so 20+
+	 * companies sharing a due date would otherwise all queue their scans for
+	 * the same instant and land in one WP-Cron pass together, risking
+	 * WAVE/PSI rate limits and a long-running cron request.
+	 */
+	const SCAN_STAGGER_SECONDS = 120;
+
 	const INTERVAL_MONTHS = array(
 		'monthly'       => 1,
 		'quarterly'     => 3,
@@ -84,11 +95,17 @@ class SRT_Cron {
 		$created = 0;
 		$skipped = 0;
 
+		// Only companies that actually get a new task also get a scheduled scan,
+		// so the stagger only advances on real creations — a run full of
+		// skipped/not-yet-due companies doesn't push later scans out for nothing.
+		$scan_delay = 60;
+
 		foreach ( $companies as $company ) {
-			$result = self::run_for_company( $company->ID, $force );
+			$result = self::run_for_company( $company->ID, $force, $scan_delay );
 
 			if ( 'created' === $result['result'] ) {
 				$created++;
+				$scan_delay += self::SCAN_STAGGER_SECONDS;
 			} elseif ( 'skipped_exists' === $result['result'] ) {
 				$skipped++;
 			}
@@ -100,12 +117,14 @@ class SRT_Cron {
 	/**
 	 * Runs the task-creation check for a single company and returns the outcome.
 	 * $force ignores the active flag and the due/lead-day timing — used by the
-	 * manual "Create review task now" button on the company edit screen.
+	 * manual "Create review task now" button on the company edit screen, which
+	 * calls this directly and leaves $scan_delay at its 60s default since only
+	 * one company's scan is involved.
 	 *
 	 * @return array{result:string,task_id?:int} result is one of:
 	 *   created | skipped_exists | not_scheduled | not_active | too_early | error
 	 */
-	public static function run_for_company( $company_id, $force = false ) {
+	public static function run_for_company( $company_id, $force = false, $scan_delay = 60 ) {
 		$due_date = get_field( 'due_date', $company_id );
 
 		if ( ! $due_date ) {
@@ -138,7 +157,7 @@ class SRT_Cron {
 		self::log( $company_id, $task_id, $due_date, 'created' );
 		self::advance_due_date( $company_id, $due_date );
 		self::notify_maker( $company_id, $task_id );
-		SRT_Site_Scanner::schedule( $task_id );
+		SRT_Site_Scanner::schedule( $task_id, $scan_delay );
 
 		return array( 'result' => 'created', 'task_id' => $task_id );
 	}
