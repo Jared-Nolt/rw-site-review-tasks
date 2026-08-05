@@ -14,6 +14,9 @@ class SRT_Results_Admin {
 	const PAGE_SLUG     = 'srt-results';
 	const EXPORT_ACTION = 'srt_export_results';
 
+	/** Number of Page Load Speed columns: homepage + up to 5 Additional Pages to Scan. */
+	const GTMETRIX_MAX_PAGES = 6;
+
 	public static function init() {
 		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ) );
 		add_action( 'admin_post_' . self::EXPORT_ACTION, array( __CLASS__, 'handle_export' ) );
@@ -103,20 +106,25 @@ class SRT_Results_Admin {
 			}
 
 			$company_id = (int) get_field( 'company', $post->ID );
+			$security   = self::security_fields( $post->ID );
+			$pages      = self::gtmetrix_pages( $post->ID );
 
 			$rows[] = array(
-				'task_id'        => $post->ID,
-				'company_id'     => $company_id,
-				'company_name'   => $company_id ? get_the_title( $company_id ) : '',
-				'period'         => get_field( 'period', $post->ID ),
-				'status_slug'    => $tag_slug,
-				'status_label'   => srt_get_task_tag_label( $tag_slug ),
-				'maker_name'     => self::user_name( (int) get_field( 'maker', $post->ID ) ),
-				'mg_name'        => self::user_name( (int) get_field( 'marketing_guide', $post->ID ) ),
-				'created'        => get_the_date( 'Y-m-d H:i', $post ),
-				'security_items' => self::security_summary( $post->ID ),
-				'last_backup'    => self::last_backup( $post->ID ),
-				'gtmetrix_items' => self::gtmetrix_summary( $post->ID ),
+				'task_id'          => $post->ID,
+				'company_id'       => $company_id,
+				'company_name'     => $company_id ? get_the_title( $company_id ) : '',
+				'period'           => get_field( 'period', $post->ID ),
+				'status_slug'      => $tag_slug,
+				'status_label'     => srt_get_task_tag_label( $tag_slug ),
+				'maker_name'       => self::user_name( (int) get_field( 'maker', $post->ID ) ),
+				'mg_name'          => self::user_name( (int) get_field( 'marketing_guide', $post->ID ) ),
+				'created'          => get_the_date( 'Y-m-d H:i', $post ),
+				'security_core'    => $security['core'],
+				'security_plugins' => $security['plugins'],
+				'security_theme'   => $security['theme'],
+				'security_php'     => $security['php'],
+				'last_backup'      => self::last_backup( $post->ID ),
+				'gtmetrix_pages'   => $pages,
 			);
 		}
 
@@ -132,39 +140,30 @@ class SRT_Results_Admin {
 	}
 
 	/**
-	 * Core/Plugins/Theme/PHP status from Kinsta's Security Overview, as a flat
-	 * list of { label, status } — status is 'ok' or 'attention', matching
-	 * SRT_Kinsta's own values so the same badge styling applies here.
+	 * Core/Plugins/Theme/PHP from Kinsta's Security Overview, keyed for direct
+	 * column access. Each entry is either null (no data yet) or
+	 * { status: 'ok'|'attention', detail: <version/update-count string> } —
+	 * `detail` is what's actually shown in the table, not a generic "OK".
 	 */
-	private static function security_summary( $task_id ) {
+	private static function security_fields( $task_id ) {
 		$results  = SRT_Kinsta::get_results( $task_id );
 		$security = isset( $results['security'] ) ? $results['security'] : array();
 
-		if ( empty( $security ) || isset( $security['error'] ) ) {
-			return array();
-		}
+		$fields = array();
 
-		$labels = array(
-			'core'    => __( 'Core', 'rw-site-review-tasks' ),
-			'plugins' => __( 'Plugins', 'rw-site-review-tasks' ),
-			'theme'   => __( 'Theme', 'rw-site-review-tasks' ),
-			'php'     => __( 'PHP', 'rw-site-review-tasks' ),
-		);
-
-		$items = array();
-
-		foreach ( $labels as $key => $label ) {
-			if ( ! isset( $security[ $key ]['status'] ) ) {
+		foreach ( array( 'core', 'plugins', 'theme', 'php' ) as $key ) {
+			if ( empty( $security ) || isset( $security['error'] ) || ! isset( $security[ $key ]['status'] ) ) {
+				$fields[ $key ] = null;
 				continue;
 			}
 
-			$items[] = array(
-				'label'  => $label,
+			$fields[ $key ] = array(
 				'status' => $security[ $key ]['status'],
+				'detail' => isset( $security[ $key ]['detail'] ) ? $security[ $key ]['detail'] : '',
 			);
 		}
 
-		return $items;
+		return $fields;
 	}
 
 	/**
@@ -182,25 +181,20 @@ class SRT_Results_Admin {
 	}
 
 	/**
-	 * GTmetrix Page Load Speed for every scanned page (homepage plus any
-	 * Additional Pages to Scan), as a flat list of { label, value }.
+	 * GTmetrix Page Load Speed as a fixed 6-slot array (Page1..Page6: homepage
+	 * plus up to 5 Additional Pages to Scan). A slot is null when the company
+	 * has no page configured there; otherwise it's the performance score (or
+	 * Pending/Error/— while a configured page hasn't completed a run yet).
 	 */
-	private static function gtmetrix_summary( $task_id ) {
+	private static function gtmetrix_pages( $task_id ) {
 		$results = SRT_GTmetrix::get_results( $task_id );
 		$pages   = isset( $results['pages'] ) && is_array( $results['pages'] ) ? $results['pages'] : array();
 
-		if ( ! $pages ) {
-			return array();
-		}
-
-		$items = array();
+		$slots = array_fill( 0, self::GTMETRIX_MAX_PAGES, null );
 
 		foreach ( $pages as $index => $page ) {
-			if ( 0 === $index ) {
-				$label = __( 'Homepage', 'rw-site-review-tasks' );
-			} else {
-				$path  = isset( $page['url'] ) ? wp_parse_url( $page['url'], PHP_URL_PATH ) : '';
-				$label = $path ? $path : __( 'Page', 'rw-site-review-tasks' );
+			if ( $index >= self::GTMETRIX_MAX_PAGES ) {
+				break;
 			}
 
 			$status = isset( $page['status'] ) ? $page['status'] : '';
@@ -212,16 +206,13 @@ class SRT_Results_Admin {
 			} elseif ( 'error' === $status ) {
 				$value = __( 'Error', 'rw-site-review-tasks' );
 			} else {
-				$value = '—';
+				$value = '—'; // Page is configured but hasn't completed a run yet.
 			}
 
-			$items[] = array(
-				'label' => $label,
-				'value' => $value,
-			);
+			$slots[ $index ] = $value;
 		}
 
-		return $items;
+		return $slots;
 	}
 
 	public static function render_page() {
@@ -268,14 +259,14 @@ class SRT_Results_Admin {
 
 			<style>
 				.srt-results-badge { display: inline-block; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; padding: 0.2rem 0.6rem; border-radius: 999px; }
+				a.srt-results-badge { text-decoration: none; cursor: pointer; }
+				a.srt-results-badge:hover, a.srt-results-badge:focus { text-decoration: underline; }
 				.srt-results-badge-completed { background: #d4edda; color: #1e7e34; }
 				.srt-results-badge-ready { background: #d6e4ff; color: #1c4e9c; }
 				.srt-results-badge-overdue { background: #f8d7da; color: #a71d2a; }
 				.srt-results-badge-needs_work { background: #fff3cd; color: #8a6500; }
-				.srt-results-mini-list { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; line-height: 1.5; white-space: nowrap; }
-				.srt-results-mini-list li { display: block; }
-				.srt-results-mini-status-ok { color: #1e7e34; }
-				.srt-results-mini-status-attention { color: #a71d2a; font-weight: 600; }
+				.srt-results-status-ok { color: #1e7e34; white-space: nowrap; }
+				.srt-results-status-attention { color: #a71d2a; font-weight: 600; white-space: nowrap; }
 			</style>
 
 			<form method="get">
@@ -332,15 +323,20 @@ class SRT_Results_Admin {
 						<th><?php esc_html_e( 'Maker', 'rw-site-review-tasks' ); ?></th>
 						<th><?php esc_html_e( 'Marketing Guide', 'rw-site-review-tasks' ); ?></th>
 						<th><?php esc_html_e( 'Created', 'rw-site-review-tasks' ); ?></th>
-						<th><?php esc_html_e( 'Security Overview', 'rw-site-review-tasks' ); ?></th>
+						<th><?php esc_html_e( 'Core', 'rw-site-review-tasks' ); ?></th>
+						<th><?php esc_html_e( 'Plugins', 'rw-site-review-tasks' ); ?></th>
+						<th><?php esc_html_e( 'Theme', 'rw-site-review-tasks' ); ?></th>
+						<th><?php esc_html_e( 'PHP', 'rw-site-review-tasks' ); ?></th>
 						<th><?php esc_html_e( 'Last Backup', 'rw-site-review-tasks' ); ?></th>
-						<th><?php esc_html_e( 'Page Load Speed', 'rw-site-review-tasks' ); ?></th>
+						<?php for ( $i = 1; $i <= self::GTMETRIX_MAX_PAGES; $i++ ) : ?>
+							<th><?php echo esc_html( sprintf( 'Page%d', $i ) ); ?></th>
+						<?php endfor; ?>
 						<th><?php esc_html_e( 'Task', 'rw-site-review-tasks' ); ?></th>
 					</tr>
 				</thead>
 				<tbody>
 					<?php if ( empty( $rows ) ) : ?>
-						<tr><td colspan="10"><?php esc_html_e( 'No tasks match these filters.', 'rw-site-review-tasks' ); ?></td></tr>
+						<tr><td colspan="<?php echo esc_attr( 7 + 4 + 1 + self::GTMETRIX_MAX_PAGES + 1 ); ?>"><?php esc_html_e( 'No tasks match these filters.', 'rw-site-review-tasks' ); ?></td></tr>
 					<?php else : ?>
 						<?php foreach ( $rows as $row ) : ?>
 							<tr>
@@ -352,38 +348,30 @@ class SRT_Results_Admin {
 									<?php endif; ?>
 								</td>
 								<td><?php echo esc_html( $row['period'] ); ?></td>
-								<td><span class="srt-results-badge srt-results-badge-<?php echo esc_attr( $row['status_slug'] ); ?>"><?php echo esc_html( $row['status_label'] ); ?></span></td>
+								<td>
+								<?php $task_url = srt_task_page_url( $row['task_id'] ); ?>
+								<?php if ( $task_url ) : ?>
+									<a href="<?php echo esc_url( $task_url ); ?>" class="srt-results-badge srt-results-badge-<?php echo esc_attr( $row['status_slug'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $row['status_label'] ); ?></a>
+								<?php else : ?>
+									<span class="srt-results-badge srt-results-badge-<?php echo esc_attr( $row['status_slug'] ); ?>"><?php echo esc_html( $row['status_label'] ); ?></span>
+								<?php endif; ?>
+							</td>
 								<td><?php echo esc_html( $row['maker_name'] ); ?></td>
 								<td><?php echo esc_html( $row['mg_name'] ); ?></td>
 								<td><?php echo esc_html( $row['created'] ); ?></td>
-								<td>
-									<?php if ( empty( $row['security_items'] ) ) : ?>
-										&#8212;
-									<?php else : ?>
-										<ul class="srt-results-mini-list">
-											<?php foreach ( $row['security_items'] as $item ) : ?>
-												<li>
-													<?php echo esc_html( $item['label'] ); ?>:
-													<span class="srt-results-mini-status-<?php echo esc_attr( $item['status'] ); ?>">
-														<?php echo 'attention' === $item['status'] ? esc_html__( 'Needs attention', 'rw-site-review-tasks' ) : esc_html__( 'OK', 'rw-site-review-tasks' ); ?>
-													</span>
-												</li>
-											<?php endforeach; ?>
-										</ul>
-									<?php endif; ?>
-								</td>
+								<?php foreach ( array( 'security_core', 'security_plugins', 'security_theme', 'security_php' ) as $field ) : ?>
+									<td>
+										<?php if ( null === $row[ $field ] ) : ?>
+											&#8212;
+										<?php else : ?>
+											<span class="srt-results-status-<?php echo esc_attr( $row[ $field ]['status'] ); ?>"><?php echo esc_html( $row[ $field ]['detail'] ); ?></span>
+										<?php endif; ?>
+									</td>
+								<?php endforeach; ?>
 								<td><?php echo $row['last_backup'] ? esc_html( $row['last_backup'] ) : '&#8212;'; ?></td>
-								<td>
-									<?php if ( empty( $row['gtmetrix_items'] ) ) : ?>
-										&#8212;
-									<?php else : ?>
-										<ul class="srt-results-mini-list">
-											<?php foreach ( $row['gtmetrix_items'] as $item ) : ?>
-												<li><?php echo esc_html( $item['label'] ); ?>: <?php echo esc_html( $item['value'] ); ?></li>
-											<?php endforeach; ?>
-										</ul>
-									<?php endif; ?>
-								</td>
+								<?php foreach ( $row['gtmetrix_pages'] as $value ) : ?>
+									<td><?php echo null === $value ? '' : esc_html( $value ); ?></td>
+								<?php endforeach; ?>
 								<td><a href="<?php echo esc_url( get_edit_post_link( $row['task_id'] ) ); ?>">#<?php echo esc_html( $row['task_id'] ); ?></a></td>
 							</tr>
 						<?php endforeach; ?>
@@ -417,26 +405,38 @@ class SRT_Results_Admin {
 		header( 'Content-Type: text/csv; charset=utf-8' );
 		header( 'Content-Disposition: attachment; filename="srt-task-results-' . gmdate( 'Y-m-d' ) . '.csv"' );
 
+		$headers = array( 'Task ID', 'Company', 'Period', 'Status', 'Maker', 'Marketing Guide', 'Created', 'Core', 'Plugins', 'Theme', 'PHP', 'Last Backup' );
+		for ( $i = 1; $i <= self::GTMETRIX_MAX_PAGES; $i++ ) {
+			$headers[] = sprintf( 'Page%d', $i );
+		}
+		$headers[] = 'Task Edit URL';
+
 		$out = fopen( 'php://output', 'w' );
-		fputcsv( $out, array( 'Task ID', 'Company', 'Period', 'Status', 'Maker', 'Marketing Guide', 'Created', 'Security Overview', 'Last Backup', 'Page Load Speed', 'Task Edit URL' ) );
+		fputcsv( $out, $headers );
 
 		foreach ( $rows as $row ) {
-			fputcsv(
-				$out,
-				array(
-					$row['task_id'],
-					$row['company_name'],
-					$row['period'],
-					$row['status_label'],
-					$row['maker_name'],
-					$row['mg_name'],
-					$row['created'],
-					self::flatten_items( $row['security_items'], 'status' ),
-					$row['last_backup'],
-					self::flatten_items( $row['gtmetrix_items'], 'value' ),
-					get_edit_post_link( $row['task_id'], 'raw' ),
-				)
+			$line = array(
+				$row['task_id'],
+				$row['company_name'],
+				$row['period'],
+				$row['status_label'],
+				$row['maker_name'],
+				$row['mg_name'],
+				$row['created'],
+				self::security_field_text( $row['security_core'] ),
+				self::security_field_text( $row['security_plugins'] ),
+				self::security_field_text( $row['security_theme'] ),
+				self::security_field_text( $row['security_php'] ),
+				$row['last_backup'],
 			);
+
+			foreach ( $row['gtmetrix_pages'] as $value ) {
+				$line[] = null === $value ? '' : $value;
+			}
+
+			$line[] = get_edit_post_link( $row['task_id'], 'raw' );
+
+			fputcsv( $out, $line );
 		}
 
 		fclose( $out );
@@ -444,22 +444,11 @@ class SRT_Results_Admin {
 	}
 
 	/**
-	 * Flattens a { label, ... } list (security_items / gtmetrix_items) into
-	 * one "Label: value; Label: value" string for a single CSV cell.
+	 * A security_fields() entry as one CSV-friendly string — '' when there's
+	 * no data yet, otherwise the version/update-count detail text.
 	 */
-	private static function flatten_items( $items, $value_key ) {
-		if ( empty( $items ) ) {
-			return '';
-		}
-
-		$parts = array();
-
-		foreach ( $items as $item ) {
-			$value   = isset( $item[ $value_key ] ) ? $item[ $value_key ] : '';
-			$parts[] = $item['label'] . ': ' . ( 'status' === $value_key ? ( 'attention' === $value ? 'Needs attention' : 'OK' ) : $value );
-		}
-
-		return implode( '; ', $parts );
+	private static function security_field_text( $field ) {
+		return null === $field ? '' : $field['detail'];
 	}
 }
 
