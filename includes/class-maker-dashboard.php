@@ -84,7 +84,7 @@ class SRT_Maker_Dashboard {
 		?>
 		<div class="srt-dashboard">
 			<?php
-			self::render_section( __( 'Needs Work', 'rw-site-review-tasks' ), $sections['needs_work'] );
+			self::render_section( __( 'Save Draft', 'rw-site-review-tasks' ), $sections['needs_work'] );
 			self::render_section( __( 'Upcoming', 'rw-site-review-tasks' ), $sections['upcoming'] );
 			self::render_section( __( 'Completed', 'rw-site-review-tasks' ), $sections['completed'] );
 			?>

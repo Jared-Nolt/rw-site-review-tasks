@@ -6,8 +6,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SRT_Site_Scanner {
 
 	const META_KEY      = 'srt_scan_results';
-	const CRON_HOOK     = 'srt_run_scan';
-	const RESCAN_ACTION = 'srt_rescan_task';
+	const CRON_HOOK      = 'srt_run_scan';
+	const RESCAN_ACTION  = 'srt_rescan_task';
 
 	public static function init() {
 		add_action( self::CRON_HOOK, array( __CLASS__, 'run' ) );
@@ -23,9 +23,8 @@ class SRT_Site_Scanner {
 	 *
 	 * $delay defaults to 60s (a single manual "Create review task now" run).
 	 * The daily batch check passes a larger, per-company delay so that when
-	 * several companies share a due date, their scans — each several outbound
-	 * HTTP calls, one with up to a 60s timeout — don't all land on the same
-	 * WP-Cron pass. See SRT_Cron::run_daily_check().
+	 * several companies share a due date, their scans don't all land on the
+	 * same WP-Cron pass. See SRT_Cron::run_daily_check().
 	 */
 	public static function schedule( $task_id, $delay = 60 ) {
 		wp_schedule_single_event( time() + max( 1, (int) $delay ), self::CRON_HOOK, array( $task_id ) );
@@ -35,6 +34,12 @@ class SRT_Site_Scanner {
 	// Main scan runner
 	// -------------------------------------------------------------------------
 
+	/**
+	 * Broken-link check only. WAVE accessibility, W3C HTML validation, and
+	 * Google PageSpeed Insights were removed from this scanner — page speed is
+	 * now handled by GTmetrix (class-gtmetrix.php) and accessibility/HTML
+	 * validation were dropped outright. See instructions.md.
+	 */
 	public static function run( $task_id ) {
 		$company_id = get_field( 'company', $task_id );
 		if ( ! $company_id ) {
@@ -63,14 +68,7 @@ class SRT_Site_Scanner {
 			$pages[] = array(
 				'url'          => $url,
 				'broken_links' => self::check_links( $url ),
-				'html_errors'  => self::check_html( $url ),
-				'accessibility'=> self::check_accessibility( $url ),
 			);
-		}
-
-		// PageSpeed Insights runs once, on the homepage, when enabled for the company.
-		if ( ! empty( $pages ) && get_field( 'psi_enabled', $company_id ) ) {
-			$pages[0]['pagespeed'] = self::check_pagespeed( $pages[0]['url'], get_field( 'psi_strategy', $company_id ) );
 		}
 
 		$results = array(
@@ -256,173 +254,6 @@ class SRT_Site_Scanner {
 	}
 
 	// -------------------------------------------------------------------------
-	// W3C Nu HTML validator
-	// -------------------------------------------------------------------------
-
-	private static function check_html( $url ) {
-		$api_url  = 'https://validator.w3.org/nu/?doc=' . rawurlencode( $url ) . '&out=json';
-		$response = wp_remote_get(
-			$api_url,
-			array(
-				'timeout'    => 30,
-				'user-agent' => 'RW-SiteReviewScanner/1.0',
-				'headers'    => array( 'Accept' => 'application/json' ),
-			)
-		);
-
-		if ( is_wp_error( $response ) ) {
-			return array( 'error' => $response->get_error_message() );
-		}
-
-		$data = json_decode( wp_remote_retrieve_body( $response ), true );
-
-		if ( ! isset( $data['messages'] ) ) {
-			return array( 'error' => __( 'Unexpected response from W3C validator.', 'rw-site-review-tasks' ) );
-		}
-
-		$errors   = array();
-		$warnings = array();
-
-		foreach ( $data['messages'] as $msg ) {
-			$item = array(
-				'message' => isset( $msg['message'] ) ? $msg['message'] : '',
-				'line'    => isset( $msg['lastLine'] ) ? (int) $msg['lastLine'] : null,
-				'extract' => isset( $msg['extract'] ) ? substr( $msg['extract'], 0, 200 ) : '',
-			);
-
-			if ( isset( $msg['type'] ) && 'error' === $msg['type'] ) {
-				$errors[] = $item;
-			} else {
-				$warnings[] = $item;
-			}
-		}
-
-		return array(
-			'errors'   => array_slice( $errors, 0, 30 ),
-			'warnings' => array_slice( $warnings, 0, 20 ),
-		);
-	}
-
-	// -------------------------------------------------------------------------
-	// WAVE accessibility API
-	// -------------------------------------------------------------------------
-
-	private static function check_accessibility( $url ) {
-		$key = get_option( 'srt_wave_api_key', '' );
-
-		if ( ! $key ) {
-			return array( 'skipped' => true );
-		}
-
-		$api_url = add_query_arg(
-			array(
-				'key'        => $key,
-				'url'        => $url,
-				'reporttype' => 2,
-			),
-			'https://wave.webaim.org/api/request'
-		);
-
-		$response = wp_remote_get( $api_url, array( 'timeout' => 30 ) );
-
-		if ( is_wp_error( $response ) ) {
-			return array( 'error' => $response->get_error_message() );
-		}
-
-		$data = json_decode( wp_remote_retrieve_body( $response ), true );
-
-		if ( ! empty( $data['status']['error'] ) ) {
-			$msg = isset( $data['status']['description'] ) ? $data['status']['description'] : __( 'WAVE API error.', 'rw-site-review-tasks' );
-			return array( 'error' => $msg );
-		}
-
-		if ( ! isset( $data['categories'] ) ) {
-			return array( 'error' => __( 'Unexpected response from WAVE.', 'rw-site-review-tasks' ) );
-		}
-
-		return array( 'categories' => $data['categories'] );
-	}
-
-	// -------------------------------------------------------------------------
-	// Google PageSpeed Insights (Lighthouse) API
-	// -------------------------------------------------------------------------
-
-	private static function check_pagespeed( $url, $strategy ) {
-		$strategy = in_array( $strategy, array( 'mobile', 'desktop' ), true ) ? $strategy : 'mobile';
-
-		$api_url = add_query_arg(
-			array(
-				'url'      => $url,
-				'strategy' => $strategy,
-				'category' => array( 'performance', 'accessibility', 'best-practices', 'seo' ),
-			),
-			'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
-		);
-
-		$key = get_option( 'srt_psi_api_key', '' );
-		if ( $key ) {
-			$api_url = add_query_arg( 'key', $key, $api_url );
-		}
-
-		$response = wp_remote_get( $api_url, array( 'timeout' => 60 ) );
-
-		if ( is_wp_error( $response ) ) {
-			return array( 'error' => $response->get_error_message() );
-		}
-
-		$code = (int) wp_remote_retrieve_response_code( $response );
-		$data = json_decode( wp_remote_retrieve_body( $response ), true );
-
-		if ( 200 !== $code ) {
-			$msg = isset( $data['error']['message'] )
-				? $data['error']['message']
-				/* translators: %d: HTTP status code */
-				: sprintf( __( 'PageSpeed API returned HTTP %d.', 'rw-site-review-tasks' ), $code );
-			return array( 'error' => $msg );
-		}
-
-		if ( ! isset( $data['lighthouseResult'] ) ) {
-			return array( 'error' => __( 'Unexpected response from PageSpeed Insights.', 'rw-site-review-tasks' ) );
-		}
-
-		$lh   = $data['lighthouseResult'];
-		$cats = isset( $lh['categories'] ) ? $lh['categories'] : array();
-
-		$scores = array();
-		foreach ( array( 'performance', 'accessibility', 'best-practices', 'seo' ) as $cat ) {
-			if ( isset( $cats[ $cat ]['score'] ) && null !== $cats[ $cat ]['score'] ) {
-				$scores[ $cat ] = (int) round( $cats[ $cat ]['score'] * 100 );
-			}
-		}
-
-		$audits      = isset( $lh['audits'] ) ? $lh['audits'] : array();
-		$metric_keys = array(
-			'first-contentful-paint'   => __( 'First Contentful Paint', 'rw-site-review-tasks' ),
-			'largest-contentful-paint' => __( 'Largest Contentful Paint', 'rw-site-review-tasks' ),
-			'total-blocking-time'      => __( 'Total Blocking Time', 'rw-site-review-tasks' ),
-			'cumulative-layout-shift'  => __( 'Cumulative Layout Shift', 'rw-site-review-tasks' ),
-			'speed-index'              => __( 'Speed Index', 'rw-site-review-tasks' ),
-		);
-
-		$metrics = array();
-		foreach ( $metric_keys as $audit_key => $label ) {
-			if ( isset( $audits[ $audit_key ]['displayValue'] ) ) {
-				$metrics[] = array(
-					'label' => $label,
-					'value' => $audits[ $audit_key ]['displayValue'],
-					'score' => isset( $audits[ $audit_key ]['score'] ) ? $audits[ $audit_key ]['score'] : null,
-				);
-			}
-		}
-
-		return array(
-			'strategy' => $strategy,
-			'scores'   => $scores,
-			'metrics'  => $metrics,
-		);
-	}
-
-	// -------------------------------------------------------------------------
 	// Admin: meta box
 	// -------------------------------------------------------------------------
 
@@ -461,23 +292,29 @@ class SRT_Site_Scanner {
 			echo '<p>' . esc_html__( 'Scan pending — runs automatically ~60 seconds after task creation.', 'rw-site-review-tasks' ) . '</p>';
 		}
 
-		$rescan_url = wp_nonce_url(
-			add_query_arg(
-				array(
-					'action'  => self::RESCAN_ACTION,
-					'task_id' => $post->ID,
-				),
-				admin_url( 'admin-post.php' )
-			),
-			'srt_rescan_' . $post->ID
+		echo '<p><a href="' . esc_url( self::rescan_url( $post->ID ) ) . '" class="button">' . esc_html__( 'Re-scan now', 'rw-site-review-tasks' ) . '</a></p>';
+	}
+
+	/**
+	 * @param int    $task_id
+	 * @param string $return_url Front-end page to redirect back to after the
+	 *                           rescan; omit for the wp-admin default.
+	 */
+	public static function rescan_url( $task_id, $return_url = '' ) {
+		$args = array(
+			'action'  => self::RESCAN_ACTION,
+			'task_id' => $task_id,
 		);
-		echo '<p><a href="' . esc_url( $rescan_url ) . '" class="button">' . esc_html__( 'Re-scan now', 'rw-site-review-tasks' ) . '</a></p>';
+		if ( $return_url ) {
+			$args['srt_return'] = $return_url;
+		}
+		return wp_nonce_url( add_query_arg( $args, admin_url( 'admin-post.php' ) ), 'srt_rescan_' . $task_id );
 	}
 
 	public static function handle_rescan() {
 		$task_id = isset( $_GET['task_id'] ) ? absint( $_GET['task_id'] ) : 0;
 
-		if ( ! $task_id || ! current_user_can( 'edit_post', $task_id ) ) {
+		if ( ! $task_id || ! is_user_logged_in() || ! srt_user_can_manage_task( $task_id ) ) {
 			wp_die( esc_html__( 'Not authorized.', 'rw-site-review-tasks' ) );
 		}
 
@@ -485,17 +322,7 @@ class SRT_Site_Scanner {
 
 		self::run( $task_id );
 
-		wp_safe_redirect(
-			add_query_arg(
-				array(
-					'post'       => $task_id,
-					'action'     => 'edit',
-					'srt_notice' => 'rescanned',
-				),
-				admin_url( 'post.php' )
-			)
-		);
-		exit;
+		srt_redirect_after_action( $task_id, 'srt_notice', 'rescanned' );
 	}
 
 	public static function maybe_show_notice() {
@@ -528,8 +355,6 @@ class SRT_Site_Scanner {
 				array(
 					'url'          => $results['url'],
 					'broken_links' => isset( $results['broken_links'] ) ? $results['broken_links'] : array(),
-					'html_errors'  => isset( $results['html_errors'] ) ? $results['html_errors'] : array(),
-					'accessibility'=> isset( $results['accessibility'] ) ? $results['accessibility'] : array(),
 				),
 			);
 		}
@@ -547,12 +372,7 @@ class SRT_Site_Scanner {
 					&mdash;
 					<a href="<?php echo esc_url( $page['url'] ); ?>" target="_blank" rel="noopener" class="srt-scan-page-url"><?php echo esc_html( $page['url'] ); ?></a>
 				</h4>
-				<?php
-				self::render_broken_links( $page, $collapse );
-				self::render_html_issues( $page, $collapse );
-				self::render_accessibility( $page, $collapse );
-				self::render_pagespeed( $page, $collapse );
-				?>
+				<?php self::render_broken_links( $page, $collapse ); ?>
 			</div>
 			<?php
 		}
@@ -606,238 +426,6 @@ class SRT_Site_Scanner {
 					<?php endforeach; ?>
 				</ul>
 			<?php endif; ?>
-		</details>
-		<?php
-	}
-
-	private static function render_html_issues( $results, $collapse = false ) {
-		$data = isset( $results['html_errors'] ) ? $results['html_errors'] : array();
-
-		if ( isset( $data['error'] ) ) {
-			self::render_section_header( __( 'HTML Validation', 'rw-site-review-tasks' ), $data['error'], 'warn', ! $collapse );
-			return;
-		}
-
-		$errors   = isset( $data['errors'] ) ? $data['errors'] : array();
-		$warnings = isset( $data['warnings'] ) ? $data['warnings'] : array();
-		$ec       = count( $errors );
-		$wc       = count( $warnings );
-
-		if ( $ec > 0 ) {
-			/* translators: 1: error count, 2: warning count */
-			$summary = sprintf( __( '%1$d error(s), %2$d warning(s)', 'rw-site-review-tasks' ), $ec, $wc );
-			$level   = 'error';
-		} elseif ( $wc > 0 ) {
-			/* translators: %d: warning count */
-			$summary = sprintf( _n( '%d warning', '%d warnings', $wc, 'rw-site-review-tasks' ), $wc );
-			$level   = 'warn';
-		} else {
-			$summary = __( 'No issues found', 'rw-site-review-tasks' );
-			$level   = 'ok';
-		}
-
-		?>
-		<details class="srt-scan-section" <?php echo ( ! $collapse && $ec > 0 ) ? 'open' : ''; ?>>
-			<summary class="srt-scan-summary">
-				<span class="srt-scan-label"><?php esc_html_e( 'HTML Validation', 'rw-site-review-tasks' ); ?></span>
-				<span class="srt-scan-badge srt-scan-badge-<?php echo esc_attr( $level ); ?>"><?php echo esc_html( $summary ); ?></span>
-			</summary>
-			<?php if ( $errors || $warnings ) : ?>
-				<ul class="srt-scan-items">
-					<?php foreach ( $errors as $item ) : ?>
-						<li class="srt-scan-item srt-scan-item-error">
-							<?php if ( $item['line'] ) : ?>
-								<span class="srt-scan-status"><?php printf( esc_html__( 'Line %d', 'rw-site-review-tasks' ), (int) $item['line'] ); ?></span>
-							<?php endif; ?>
-							<span class="srt-scan-msg"><?php echo esc_html( $item['message'] ); ?></span>
-							<?php if ( $item['extract'] ) : ?>
-								<code class="srt-scan-extract"><?php echo esc_html( $item['extract'] ); ?></code>
-							<?php endif; ?>
-						</li>
-					<?php endforeach; ?>
-					<?php foreach ( $warnings as $item ) : ?>
-						<li class="srt-scan-item srt-scan-item-warn">
-							<?php if ( $item['line'] ) : ?>
-								<span class="srt-scan-status"><?php printf( esc_html__( 'Line %d', 'rw-site-review-tasks' ), (int) $item['line'] ); ?></span>
-							<?php endif; ?>
-							<span class="srt-scan-msg"><?php echo esc_html( $item['message'] ); ?></span>
-							<?php if ( $item['extract'] ) : ?>
-								<code class="srt-scan-extract"><?php echo esc_html( $item['extract'] ); ?></code>
-							<?php endif; ?>
-						</li>
-					<?php endforeach; ?>
-				</ul>
-			<?php endif; ?>
-		</details>
-		<?php
-	}
-
-	private static function render_accessibility( $results, $collapse = false ) {
-		$data = isset( $results['accessibility'] ) ? $results['accessibility'] : array();
-
-		if ( ! empty( $data['skipped'] ) ) {
-			?>
-			<details class="srt-scan-section">
-				<summary class="srt-scan-summary">
-					<span class="srt-scan-label"><?php esc_html_e( 'Accessibility (WAVE)', 'rw-site-review-tasks' ); ?></span>
-					<span class="srt-scan-badge srt-scan-badge-ok"><?php esc_html_e( 'No API key — skipped', 'rw-site-review-tasks' ); ?></span>
-				</summary>
-				<p class="srt-scan-skip-note">
-					<?php
-					printf(
-						/* translators: %s: settings URL */
-						esc_html__( 'Add a WAVE API key in %s to enable accessibility scanning.', 'rw-site-review-tasks' ),
-						'<a href="' . esc_url( add_query_arg( array( 'post_type' => SRT_CPT_Company::POST_TYPE, 'page' => SRT_Admin_Settings::PAGE_SLUG ), admin_url( 'edit.php' ) ) ) . '">' . esc_html__( 'Settings', 'rw-site-review-tasks' ) . '</a>'
-					);
-					?>
-				</p>
-			</details>
-			<?php
-			return;
-		}
-
-		if ( isset( $data['error'] ) ) {
-			self::render_section_header( __( 'Accessibility (WAVE)', 'rw-site-review-tasks' ), $data['error'], 'warn', ! $collapse );
-			return;
-		}
-
-		$categories = isset( $data['categories'] ) ? $data['categories'] : array();
-
-		// Only show error, contrast, alert — skip feature/structure/aria (those are good)
-		$show_cats = array( 'error', 'contrast', 'alert' );
-		$total_issues = 0;
-		foreach ( $show_cats as $cat ) {
-			if ( isset( $categories[ $cat ]['count'] ) ) {
-				$total_issues += (int) $categories[ $cat ]['count'];
-			}
-		}
-
-		$err_count  = isset( $categories['error']['count'] ) ? (int) $categories['error']['count'] : 0;
-		$con_count  = isset( $categories['contrast']['count'] ) ? (int) $categories['contrast']['count'] : 0;
-		$alrt_count = isset( $categories['alert']['count'] ) ? (int) $categories['alert']['count'] : 0;
-
-		if ( $total_issues > 0 ) {
-			$parts = array();
-			if ( $err_count )  $parts[] = sprintf( _n( '%d error', '%d errors', $err_count, 'rw-site-review-tasks' ), $err_count );
-			if ( $con_count )  $parts[] = sprintf( _n( '%d contrast issue', '%d contrast issues', $con_count, 'rw-site-review-tasks' ), $con_count );
-			if ( $alrt_count ) $parts[] = sprintf( _n( '%d alert', '%d alerts', $alrt_count, 'rw-site-review-tasks' ), $alrt_count );
-			$summary = implode( ', ', $parts );
-			$level   = $err_count > 0 || $con_count > 0 ? 'error' : 'warn';
-		} else {
-			$summary = __( 'No issues found', 'rw-site-review-tasks' );
-			$level   = 'ok';
-		}
-
-		?>
-		<details class="srt-scan-section" <?php echo ( ! $collapse && $total_issues > 0 ) ? 'open' : ''; ?>>
-			<summary class="srt-scan-summary">
-				<span class="srt-scan-label"><?php esc_html_e( 'Accessibility (WAVE)', 'rw-site-review-tasks' ); ?></span>
-				<span class="srt-scan-badge srt-scan-badge-<?php echo esc_attr( $level ); ?>"><?php echo esc_html( $summary ); ?></span>
-			</summary>
-			<?php if ( $total_issues > 0 ) : ?>
-				<ul class="srt-scan-items">
-					<?php
-					foreach ( $show_cats as $cat ) :
-						if ( empty( $categories[ $cat ]['items'] ) ) {
-							continue;
-						}
-						$cat_label = isset( $categories[ $cat ]['description'] ) ? $categories[ $cat ]['description'] : $cat;
-						$item_class = ( 'alert' === $cat ) ? 'srt-scan-item-warn' : 'srt-scan-item-error';
-						foreach ( $categories[ $cat ]['items'] as $item ) :
-					?>
-						<li class="srt-scan-item <?php echo esc_attr( $item_class ); ?>">
-							<span class="srt-scan-status"><?php echo esc_html( $cat_label ); ?></span>
-							<span class="srt-scan-msg">
-								<?php
-								$desc  = isset( $item['description'] ) ? $item['description'] : ( isset( $item['id'] ) ? $item['id'] : '' );
-								$count = isset( $item['count'] ) ? (int) $item['count'] : 0;
-								echo esc_html( $desc );
-								if ( $count > 1 ) {
-									echo ' <em>(' . esc_html( sprintf( _n( '%d instance', '%d instances', $count, 'rw-site-review-tasks' ), $count ) ) . ')</em>';
-								}
-								?>
-							</span>
-						</li>
-					<?php
-						endforeach;
-					endforeach;
-					?>
-				</ul>
-			<?php endif; ?>
-		</details>
-		<?php
-	}
-
-	private static function render_pagespeed( $results, $collapse = false ) {
-		if ( empty( $results['pagespeed'] ) ) {
-			return; // Only the homepage carries PageSpeed data, and only when enabled.
-		}
-
-		$data = $results['pagespeed'];
-
-		if ( isset( $data['error'] ) ) {
-			self::render_section_header( __( 'PageSpeed (Lighthouse)', 'rw-site-review-tasks' ), $data['error'], 'warn', ! $collapse );
-			return;
-		}
-
-		$scores   = isset( $data['scores'] ) ? $data['scores'] : array();
-		$metrics  = isset( $data['metrics'] ) ? $data['metrics'] : array();
-		$strategy = isset( $data['strategy'] ) ? $data['strategy'] : 'mobile';
-
-		$perf = isset( $scores['performance'] ) ? $scores['performance'] : null;
-
-		if ( null !== $perf ) {
-			$level   = $perf >= 90 ? 'ok' : ( $perf >= 50 ? 'warn' : 'error' );
-			$summary = sprintf(
-				/* translators: 1: performance score 0-100, 2: strategy (Mobile/Desktop) */
-				__( 'Performance %1$d/100 (%2$s)', 'rw-site-review-tasks' ),
-				$perf,
-				ucfirst( $strategy )
-			);
-		} else {
-			$level   = 'warn';
-			$summary = __( 'No score returned', 'rw-site-review-tasks' );
-		}
-
-		$cat_labels = array(
-			'performance'    => __( 'Performance', 'rw-site-review-tasks' ),
-			'accessibility'  => __( 'Accessibility', 'rw-site-review-tasks' ),
-			'best-practices' => __( 'Best Practices', 'rw-site-review-tasks' ),
-			'seo'            => __( 'SEO', 'rw-site-review-tasks' ),
-		);
-		?>
-		<details class="srt-scan-section" <?php echo ( ! $collapse && null !== $perf && $perf < 90 ) ? 'open' : ''; ?>>
-			<summary class="srt-scan-summary">
-				<span class="srt-scan-label"><?php esc_html_e( 'PageSpeed (Lighthouse)', 'rw-site-review-tasks' ); ?></span>
-				<span class="srt-scan-badge srt-scan-badge-<?php echo esc_attr( $level ); ?>"><?php echo esc_html( $summary ); ?></span>
-			</summary>
-			<ul class="srt-scan-items">
-				<?php foreach ( $cat_labels as $key => $label ) : ?>
-					<?php
-					if ( ! isset( $scores[ $key ] ) ) {
-						continue;
-					}
-					$score     = $scores[ $key ];
-					$score_cls = $score >= 90 ? '' : ( $score >= 50 ? 'srt-scan-item-warn' : 'srt-scan-item-error' );
-					?>
-					<li class="srt-scan-item <?php echo esc_attr( $score_cls ); ?>">
-						<span class="srt-scan-status"><?php echo esc_html( $label ); ?></span>
-						<span class="srt-scan-msg"><?php echo esc_html( $score . '/100' ); ?></span>
-					</li>
-				<?php endforeach; ?>
-				<?php foreach ( $metrics as $metric ) : ?>
-					<?php
-					$metric_cls = '';
-					if ( isset( $metric['score'] ) && null !== $metric['score'] && $metric['score'] < 0.9 ) {
-						$metric_cls = $metric['score'] < 0.5 ? 'srt-scan-item-error' : 'srt-scan-item-warn';
-					}
-					?>
-					<li class="srt-scan-item <?php echo esc_attr( $metric_cls ); ?>">
-						<span class="srt-scan-status"><?php echo esc_html( $metric['label'] ); ?></span>
-						<span class="srt-scan-msg"><?php echo esc_html( $metric['value'] ); ?></span>
-					</li>
-				<?php endforeach; ?>
-			</ul>
 		</details>
 		<?php
 	}

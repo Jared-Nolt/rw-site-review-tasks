@@ -29,9 +29,12 @@ function srt_get_task_tag_slug( $task_id ) {
 }
 
 function srt_get_task_tag_label( $slug ) {
+	// Display label only — the stored value/slug stays 'needs_work' everywhere
+	// (meta value, webhook payload, tag slug) so existing data, integrations,
+	// and the overdue/ready logic in srt_get_task_tag_slug() are unaffected.
 	$labels = array(
 		'completed'  => __( 'Completed', 'rw-site-review-tasks' ),
-		'needs_work' => __( 'Needs Work', 'rw-site-review-tasks' ),
+		'needs_work' => __( 'Save Draft', 'rw-site-review-tasks' ),
 		'overdue'    => __( 'Overdue', 'rw-site-review-tasks' ),
 		'ready'      => __( 'Ready', 'rw-site-review-tasks' ),
 	);
@@ -178,6 +181,52 @@ function srt_user_can_access_task( $task_id ) {
 }
 
 /**
+ * Whether the current user may trigger a rescan/refresh action on a task —
+ * either through wp-admin (edit_post, i.e. Editor and above) or as the
+ * maker/marketing guide accessing it via the front-end task page. Makers and
+ * marketing guides are ordinarily Subscribers with no edit_post capability at
+ * all, so the site scan/Kinsta/GTmetrix "re-run" buttons shown on the
+ * front-end task page would otherwise 403 for the very people using that
+ * page. Callers must check is_user_logged_in() first (same contract as
+ * srt_user_can_access_task()).
+ */
+function srt_user_can_manage_task( $task_id ) {
+	return current_user_can( 'edit_post', $task_id ) || srt_user_can_access_task( $task_id );
+}
+
+/**
+ * Redirects back after a rescan/refresh/save admin-post action. Admin-side
+ * links (built without a $return_url) redirect to the wp-admin edit screen as
+ * before; front-end links pass their own page URL as 'srt_return' so a maker
+ * or marketing guide — who usually can't open wp-admin at all — lands back on
+ * the task page instead of hitting an access-denied wall.
+ *
+ * @param int    $task_id      Task post ID, used only for the wp-admin fallback.
+ * @param string $notice_key   Query arg name for the notice (e.g. 'srt_kinsta').
+ * @param string $notice_value Query arg value (e.g. 'security_refreshed').
+ */
+function srt_redirect_after_action( $task_id, $notice_key, $notice_value ) {
+	$return = isset( $_REQUEST['srt_return'] ) ? esc_url_raw( wp_unslash( $_REQUEST['srt_return'] ) ) : '';
+
+	if ( $return ) {
+		wp_safe_redirect( add_query_arg( $notice_key, $notice_value, $return ) );
+		exit;
+	}
+
+	wp_safe_redirect(
+		add_query_arg(
+			array(
+				'post'      => $task_id,
+				'action'    => 'edit',
+				$notice_key => $notice_value,
+			),
+			admin_url( 'post.php' )
+		)
+	);
+	exit;
+}
+
+/**
  * meta_query matching companies or tasks assigned to a user as either the maker
  * or the marketing guide. Both roles get the same visibility over the records
  * they're named on.
@@ -234,6 +283,112 @@ function srt_format_people_line( $task_id ) {
  */
 function srt_default_executive_summary() {
 	return __( "This monthly review confirms the site's stability, security, and optimal performance. Key updates and scans were conducted, and the overall website health is in good standing. Minor issues were resolved as detailed below.", 'rw-site-review-tasks' );
+}
+
+/**
+ * Default checklist rows seeded onto a company the first time it's saved with
+ * an empty checklist (see SRT_CPT_Company::seed_default_checklist()). Mirrors
+ * the standard sections every review covers; edit or add to per company —
+ * this only supplies the starting point.
+ *
+ * Security Overview's four items also carry data pulled from the Kinsta API
+ * once that's configured (see class-kinsta.php) — the checkbox stays the
+ * maker's manual confirmation, informed by the fetched value shown alongside
+ * it, rather than being replaced by it.
+ *
+ * @return array Rows in the same shape as the `checklist` repeater field.
+ */
+function srt_default_checklist_items() {
+	// Note: the status items below use 'radio' (pick exactly one), not
+	// 'checkbox' (pick any) — "Up to date" and "Needs attention" are mutually
+	// exclusive states, and radio is what SRT_Kinsta::apply_security_to_checklist()
+	// expects to auto-fill.
+	return array(
+		array(
+			'section'    => 'Security Overview',
+			'field_type' => 'radio',
+			'label'      => 'Plugins',
+			'choices'    => "Up to date\nNeeds attention",
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Security Overview',
+			'field_type' => 'radio',
+			'label'      => 'Theme',
+			'choices'    => "Up to date\nNeeds attention",
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Security Overview',
+			'field_type' => 'radio',
+			'label'      => 'Core',
+			'choices'    => "Up to date\nNeeds attention",
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Security Overview',
+			'field_type' => 'radio',
+			'label'      => 'PHP Version',
+			'choices'    => "Up to date\nNeeds attention",
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Security Overview',
+			'field_type' => 'textarea',
+			'label'      => 'Security Overview Summary',
+			'choices'    => '',
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Content and User Experience',
+			'field_type' => 'radio',
+			'label'      => 'Content Check',
+			'choices'    => "Pass\nNeeds attention",
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Content and User Experience',
+			'field_type' => 'radio',
+			'label'      => 'Mobile Responsiveness',
+			'choices'    => "Pass\nNeeds attention",
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Content and User Experience',
+			'field_type' => 'radio',
+			'label'      => 'Form Functionality',
+			'choices'    => "Pass\nNeeds attention",
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Content and User Experience',
+			'field_type' => 'radio',
+			'label'      => 'Cart & Checkout Functionality',
+			'choices'    => "Pass\nNeeds attention",
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Content and User Experience',
+			'field_type' => 'textarea',
+			'label'      => 'Content and User Experience Summary',
+			'choices'    => '',
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Performance and Speed Optimization',
+			'field_type' => 'radio',
+			'label'      => 'Page Load Speed',
+			'choices'    => "Good\nNeeds attention",
+			'answer'     => '',
+		),
+		array(
+			'section'    => 'Backups',
+			'field_type' => 'radio',
+			'label'      => 'Backup Verification',
+			'choices'    => "Verified\nNeeds attention",
+			'answer'     => '',
+		),
+	);
 }
 
 /**
@@ -388,34 +543,20 @@ function srt_register_acf_fields() {
 					'placeholder'  => 'https://',
 				),
 				array(
-					'key'           => 'field_srt_company_psi_enabled',
-					'label'         => 'Run PageSpeed scan',
-					'name'          => 'psi_enabled',
-					'type'          => 'true_false',
-					'default_value' => 1,
-					'ui'            => 1,
-					'instructions'  => 'Include Google PageSpeed Insights (Lighthouse) results for the homepage in each site scan. Add a PageSpeed API key under Settings for higher quota.',
+					'key'          => 'field_srt_company_kinsta_site_id',
+					'label'        => 'Kinsta Site ID',
+					'name'         => 'kinsta_site_id',
+					'type'         => 'text',
+					'instructions' => 'Optional. Enables the Security Overview and Backups data pulled from Kinsta. In MyKinsta, open the site and click into its environment (e.g. "Live") — the ID is the first UUID in the browser\'s address bar right after /sites/details/ (e.g. my.kinsta.com/sites/details/THIS-PART/...). Leave blank to skip.',
 				),
 				array(
-					'key'               => 'field_srt_company_psi_strategy',
-					'label'             => 'PageSpeed Strategy',
-					'name'              => 'psi_strategy',
-					'type'              => 'select',
-					'choices'           => array(
-						'mobile'  => 'Mobile',
-						'desktop' => 'Desktop',
-					),
-					'default_value'     => 'mobile',
-					'allow_null'        => 0,
-					'conditional_logic' => array(
-						array(
-							array(
-								'field'    => 'field_srt_company_psi_enabled',
-								'operator' => '==',
-								'value'    => '1',
-							),
-						),
-					),
+					'key'           => 'field_srt_company_executive_summary',
+					'label'         => 'Executive Summary',
+					'name'          => 'executive_summary',
+					'type'          => 'textarea',
+					'rows'          => 4,
+					'default_value' => srt_default_executive_summary(),
+					'instructions'  => 'The default Executive Summary copied onto each new review task for this company. Edit here to customize this company\'s boilerplate; edit on the task itself to customize a single report.',
 				),
 				array(
 					'key'           => 'field_srt_company_maker',
@@ -448,15 +589,66 @@ function srt_register_acf_fields() {
 					'instructions'  => 'Inactive companies are skipped by the daily task-creation check.',
 				),
 				array(
-					'key'           => 'field_srt_company_checklist_template',
-					'label'         => 'Checklist',
-					'name'          => 'checklist_template',
-					'type'          => 'post_object',
-					'post_type'     => array( 'rwsrt_checklist' ),
-					'return_format' => 'id',
-					'multiple'      => 0,
-					'ui'            => 1,
-					'instructions'  => 'Copied onto each new review task when it is created.',
+					'key'          => 'field_srt_company_checklist',
+					'label'        => 'Checklist Items',
+					'name'         => 'checklist',
+					'type'         => 'repeater',
+					'layout'       => 'table',
+					'button_label' => 'Add Item',
+					'instructions' => 'Copied onto each new review task when it is created. Editing this after tasks exist only affects future tasks — each task keeps its own snapshot, so past reports don\'t change retroactively.',
+					'sub_fields'   => array(
+						array(
+							'key'          => 'field_srt_company_checklist_item_section',
+							'label'        => 'Section',
+							'name'         => 'section',
+							'type'         => 'text',
+							'instructions' => 'Items sharing a Section are grouped under one heading on the report (e.g. "Security Overview"). Leave blank for no heading.',
+						),
+						array(
+							'key'           => 'field_srt_company_checklist_item_type',
+							'label'         => 'Type',
+							'name'          => 'field_type',
+							'type'          => 'select',
+							'choices'       => array(
+								'radio'    => 'Radio (custom choices, pick one)',
+								'checkbox' => 'Checkbox (custom choices, pick any)',
+								'textarea' => 'Textarea (free text)',
+								'gallery'  => 'Gallery (image uploads)',
+							),
+							'default_value' => 'checkbox',
+							'allow_null'    => 0,
+						),
+						array(
+							'key'   => 'field_srt_company_checklist_item_label',
+							'label' => 'Label',
+							'name'  => 'label',
+							'type'  => 'text',
+						),
+						array(
+							'key'               => 'field_srt_company_checklist_item_choices',
+							'label'             => 'Choices',
+							'name'              => 'choices',
+							'type'              => 'textarea',
+							'rows'              => 3,
+							'instructions'      => 'One choice per line.',
+							'conditional_logic' => array(
+								array(
+									array(
+										'field'    => 'field_srt_company_checklist_item_type',
+										'operator' => '==',
+										'value'    => 'radio',
+									),
+								),
+								array(
+									array(
+										'field'    => 'field_srt_company_checklist_item_type',
+										'operator' => '==',
+										'value'    => 'checkbox',
+									),
+								),
+							),
+						),
+					),
 				),
 				array(
 					'key'           => 'field_srt_company_interval',
@@ -573,85 +765,6 @@ function srt_register_acf_fields() {
 
 	acf_add_local_field_group(
 		array(
-			'key'      => 'group_srt_checklist',
-			'title'    => 'Checklist Items',
-			'fields'   => array(
-				array(
-					'key'          => 'field_srt_checklist_items',
-					'label'        => 'Items',
-					'name'         => 'items',
-					'type'         => 'repeater',
-					'layout'       => 'table',
-					'button_label' => 'Add Item',
-					'sub_fields'   => array(
-						array(
-							'key'          => 'field_srt_checklist_item_section',
-							'label'        => 'Section',
-							'name'         => 'section',
-							'type'         => 'text',
-							'instructions' => 'Items sharing a Section are grouped under one heading on the report (e.g. "Security Overview"). Leave blank for no heading.',
-						),
-						array(
-							'key'           => 'field_srt_checklist_item_type',
-							'label'         => 'Type',
-							'name'          => 'field_type',
-							'type'          => 'select',
-							'choices'       => array(
-								'radio'    => 'Radio (custom choices, pick one)',
-								'checkbox' => 'Checkbox (custom choices, pick any)',
-								'textarea' => 'Textarea (free text)',
-								'gallery'  => 'Gallery (image uploads)',
-							),
-							'default_value' => 'checkbox',
-							'allow_null'    => 0,
-						),
-						array(
-							'key'   => 'field_srt_checklist_item_label',
-							'label' => 'Label',
-							'name'  => 'label',
-							'type'  => 'text',
-						),
-						array(
-							'key'               => 'field_srt_checklist_item_choices',
-							'label'             => 'Choices',
-							'name'              => 'choices',
-							'type'              => 'textarea',
-							'rows'              => 3,
-							'instructions'      => 'One choice per line.',
-							'conditional_logic' => array(
-								array(
-									array(
-										'field'    => 'field_srt_checklist_item_type',
-										'operator' => '==',
-										'value'    => 'radio',
-									),
-								),
-								array(
-									array(
-										'field'    => 'field_srt_checklist_item_type',
-										'operator' => '==',
-										'value'    => 'checkbox',
-									),
-								),
-							),
-						),
-					),
-				),
-			),
-			'location' => array(
-				array(
-					array(
-						'param'    => 'post_type',
-						'operator' => '==',
-						'value'    => 'rwsrt_checklist',
-					),
-				),
-			),
-		)
-	);
-
-	acf_add_local_field_group(
-		array(
 			'key'      => 'group_srt_task',
 			'title'    => 'Task Details',
 			'fields'   => array(
@@ -752,6 +865,30 @@ function srt_register_acf_fields() {
 					),
 				),
 				array(
+					'key'          => 'field_srt_task_kinsta_security_notes',
+					'label'        => 'Security Overview Notes',
+					'name'         => 'kinsta_security_notes',
+					'type'         => 'textarea',
+					'rows'         => 3,
+					'instructions' => 'Optional commentary shown below the Kinsta Data → Security Overview block. Hidden entirely on both PDFs when left blank.',
+				),
+				array(
+					'key'          => 'field_srt_task_kinsta_backups_notes',
+					'label'        => 'Backups Notes',
+					'name'         => 'kinsta_backups_notes',
+					'type'         => 'textarea',
+					'rows'         => 3,
+					'instructions' => 'Optional commentary shown below the Kinsta Data → Backups block. Hidden entirely on both PDFs when left blank.',
+				),
+				array(
+					'key'          => 'field_srt_task_kinsta_bot_protection_notes',
+					'label'        => 'Bot Protection Notes',
+					'name'         => 'kinsta_bot_protection_notes',
+					'type'         => 'textarea',
+					'rows'         => 3,
+					'instructions' => 'Optional commentary shown below the Bot Protection block. Marketing Guide PDF only, like Bot Protection itself. Hidden entirely when left blank.',
+				),
+				array(
 					'key'          => 'field_srt_task_extra_notes',
 					'label'        => 'Extra Notes',
 					'name'         => 'extra_notes',
@@ -766,7 +903,7 @@ function srt_register_acf_fields() {
 					'type'          => 'radio',
 					'choices'       => array(
 						'completed'  => 'Completed',
-						'needs_work' => 'Needs Work',
+						'needs_work' => 'Save Draft',
 					),
 					'allow_null'    => 1,
 					'default_value' => '',

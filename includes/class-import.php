@@ -56,11 +56,12 @@ class SRT_Import {
 
 	/**
 	 * Expected columns: Company Name, Maker (email or username, optional), Active (yes/no, optional,
-	 * defaults to yes), Checklist (exact checklist title, optional), Interval (monthly/quarterly/
-	 * semi_annually/annually, optional, defaults to monthly), Lead Days (integer, optional, defaults
-	 * to 0), Due Date (YYYY-MM-DD, optional, defaults to today). A header row is detected and skipped
-	 * automatically. Matching is by exact company title: existing companies are updated, new names
-	 * are created.
+	 * defaults to yes), Interval (monthly/quarterly/semi_annually/annually, optional, defaults to
+	 * monthly), Lead Days (integer, optional, defaults to 0), Due Date (YYYY-MM-DD, optional, defaults
+	 * to today). A header row is detected and skipped automatically. Matching is by exact company
+	 * title: existing companies are updated, new names are created. Each company's checklist is no
+	 * longer set from a shared template — new companies get the default checklist sections (see
+	 * srt_default_checklist_items()); edit checklist items directly on the company afterward.
 	 */
 	private static function process_csv( $tmp_path ) {
 		$handle = fopen( $tmp_path, 'r' );
@@ -96,38 +97,13 @@ class SRT_Import {
 
 			$maker_raw     = isset( $row[1] ) ? trim( $row[1] ) : '';
 			$active_raw    = isset( $row[2] ) ? trim( $row[2] ) : '';
-			$checklist_raw = isset( $row[3] ) ? trim( $row[3] ) : '';
-			$interval_raw  = isset( $row[4] ) ? trim( $row[4] ) : '';
-			$lead_days_raw = isset( $row[5] ) ? trim( $row[5] ) : '';
-			$due_date_raw  = isset( $row[6] ) ? trim( $row[6] ) : '';
+			$interval_raw  = isset( $row[3] ) ? trim( $row[3] ) : '';
+			$lead_days_raw = isset( $row[4] ) ? trim( $row[4] ) : '';
+			$due_date_raw  = isset( $row[5] ) ? trim( $row[5] ) : '';
 
 			$active = 1;
 			if ( '' !== $active_raw ) {
 				$active = in_array( strtolower( $active_raw ), array( '1', 'yes', 'y', 'true', 'active' ), true ) ? 1 : 0;
-			}
-
-			$checklist_id = 0;
-			if ( '' !== $checklist_raw ) {
-				$checklist_posts = get_posts(
-					array(
-						'post_type'      => SRT_CPT_Checklist::POST_TYPE,
-						'post_status'    => 'any',
-						'title'          => $checklist_raw,
-						'posts_per_page' => 1,
-					)
-				);
-
-				if ( $checklist_posts ) {
-					$checklist_id = $checklist_posts[0]->ID;
-				} else {
-					$warnings[] = sprintf(
-						/* translators: 1: row number, 2: checklist name, 3: company name */
-						__( 'Row %1$d: checklist "%2$s" not found for "%3$s" — left unassigned.', 'rw-site-review-tasks' ),
-						$line,
-						$checklist_raw,
-						$name
-					);
-				}
 			}
 
 			$valid_intervals = array( 'monthly', 'quarterly', 'semi_annually', 'annually' );
@@ -195,10 +171,6 @@ class SRT_Import {
 				update_field( 'maker', $maker_id, $post_id );
 			}
 			update_field( 'active', $active, $post_id );
-
-			if ( $checklist_id ) {
-				update_field( 'checklist_template', $checklist_id, $post_id );
-			}
 			update_field( 'interval', $interval, $post_id );
 			update_field( 'lead_days', $lead_days, $post_id );
 			update_field( 'due_date', $due_date, $post_id );
@@ -256,7 +228,7 @@ class SRT_Import {
 						<td>
 							<input type="file" id="srt_csv_file" name="srt_csv_file" accept=".csv" required />
 							<p class="description">
-								<?php esc_html_e( 'Columns: Company Name, Maker (email or username, optional), Active (yes/no, optional — defaults to yes), Checklist (exact checklist title, optional), Interval (monthly/quarterly/semi_annually/annually, optional — defaults to monthly), Lead Days (integer, optional — defaults to 0), Due Date (YYYY-MM-DD, optional — defaults to today). A header row is detected automatically. Matching is by exact company name: existing companies are updated, new names are created.', 'rw-site-review-tasks' ); ?>
+								<?php esc_html_e( 'Columns: Company Name, Maker (email or username, optional), Active (yes/no, optional — defaults to yes), Interval (monthly/quarterly/semi_annually/annually, optional — defaults to monthly), Lead Days (integer, optional — defaults to 0), Due Date (YYYY-MM-DD, optional — defaults to today). A header row is detected automatically. Matching is by exact company name: existing companies are updated, new names are created. New companies get the default checklist sections automatically.', 'rw-site-review-tasks' ); ?>
 							</p>
 						</td>
 					</tr>

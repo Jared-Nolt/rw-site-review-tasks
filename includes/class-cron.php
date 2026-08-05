@@ -158,6 +158,8 @@ class SRT_Cron {
 		self::advance_due_date( $company_id, $due_date );
 		self::notify_maker( $company_id, $task_id );
 		SRT_Site_Scanner::schedule( $task_id, $scan_delay );
+		SRT_Kinsta::schedule( $task_id, $scan_delay );
+		SRT_GTmetrix::schedule( $task_id, $scan_delay );
 
 		return array( 'result' => 'created', 'task_id' => $task_id );
 	}
@@ -189,7 +191,6 @@ class SRT_Cron {
 	private static function create_task( $company_id, $due_date ) {
 		$maker_id           = get_field( 'maker', $company_id );
 		$marketing_guide_id = get_field( 'marketing_guide', $company_id );
-		$template_id        = get_field( 'checklist_template', $company_id );
 
 		$task_id = wp_insert_post(
 			array(
@@ -203,14 +204,20 @@ class SRT_Cron {
 			return 0;
 		}
 
+		// Executive Summary and the checklist are both snapshotted from the
+		// company's current values — later edits to either, on the company,
+		// only affect tasks created afterward. Each task keeps its own copy so
+		// past reports (and comparisons across runs) never change retroactively.
+		$company_summary = get_field( 'executive_summary', $company_id );
+
 		update_field( 'company', $company_id, $task_id );
 		update_field( 'maker', $maker_id, $task_id );
 		update_field( 'marketing_guide', $marketing_guide_id, $task_id );
 		update_field( 'period', $due_date, $task_id );
 		update_field( 'status', '', $task_id );
-		update_field( 'executive_summary', srt_default_executive_summary(), $task_id );
+		update_field( 'executive_summary', $company_summary ? $company_summary : srt_default_executive_summary(), $task_id );
 
-		$items = $template_id ? get_field( 'items', $template_id ) : array();
+		$items = get_field( 'checklist', $company_id );
 		$rows  = array();
 
 		if ( is_array( $items ) ) {
@@ -301,8 +308,10 @@ class SRT_Cron {
 
 	/**
 	 * Emails the assigned maker and marketing guide when a task's status is
-	 * saved as Completed or Needs Work. Both statuses are treated the same way
-	 * — same recipients, same mechanics — only the wording differs.
+	 * saved as Completed or Save Draft (stored value/slug is still
+	 * 'needs_work' — only the user-facing label changed, see
+	 * srt_get_task_tag_label()). Both are treated the same way — same
+	 * recipients, same mechanics — only the wording differs.
 	 *
 	 * @param int    $task_id The task post ID.
 	 * @param string $status  'completed' or 'needs_work'.
@@ -323,14 +332,14 @@ class SRT_Cron {
 			/* translators: %s: company name */
 			$is_completed
 				? __( '%s: website review task completed', 'rw-site-review-tasks' )
-				: __( '%s: website review task needs work', 'rw-site-review-tasks' ),
+				: __( '%s: website review task saved as a draft', 'rw-site-review-tasks' ),
 			$company_name
 		);
 		$heading = sprintf(
 			/* translators: %s: company name */
 			$is_completed
 				? __( 'Review task completed for %s', 'rw-site-review-tasks' )
-				: __( 'Review task needs work for %s', 'rw-site-review-tasks' ),
+				: __( 'Review task saved as a draft for %s', 'rw-site-review-tasks' ),
 			$company_name
 		);
 
@@ -355,7 +364,7 @@ class SRT_Cron {
 					/* translators: 1: recipient first name, 2: company name */
 					$is_completed
 						? __( 'Hi %1$s, the website review task for %2$s has been marked Completed.', 'rw-site-review-tasks' )
-						: __( 'Hi %1$s, the website review task for %2$s has been marked Needs Work.', 'rw-site-review-tasks' ),
+						: __( 'Hi %1$s, the website review task for %2$s has been saved as a draft.', 'rw-site-review-tasks' ),
 					self::greeting_name( $user ),
 					$company_name
 				),

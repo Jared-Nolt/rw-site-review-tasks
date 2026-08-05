@@ -45,12 +45,6 @@ class SRT_Admin_Settings {
 			update_option( 'srt_cron_time', $cron_time );
 			SRT_Cron::reschedule();
 
-			$wave_key = isset( $_POST['srt_wave_api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['srt_wave_api_key'] ) ) : '';
-			update_option( 'srt_wave_api_key', $wave_key );
-
-			$psi_key = isset( $_POST['srt_psi_api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['srt_psi_api_key'] ) ) : '';
-			update_option( 'srt_psi_api_key', $psi_key );
-
 			$log_retention = isset( $_POST['srt_log_retention_days'] ) ? max( 0, (int) $_POST['srt_log_retention_days'] ) : SRT_Cron::LOG_RETENTION_DEFAULT;
 			update_option( 'srt_log_retention_days', $log_retention );
 
@@ -71,6 +65,15 @@ class SRT_Admin_Settings {
 
 			$webhook_secret = isset( $_POST['srt_webhook_secret'] ) ? sanitize_text_field( wp_unslash( $_POST['srt_webhook_secret'] ) ) : '';
 			update_option( SRT_Webhook::SECRET_OPT, $webhook_secret );
+
+			$kinsta_key = isset( $_POST['srt_kinsta_api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['srt_kinsta_api_key'] ) ) : '';
+			update_option( SRT_Kinsta::API_KEY_OPT, $kinsta_key );
+
+			$kinsta_php = isset( $_POST['srt_kinsta_recommended_php'] ) ? sanitize_text_field( wp_unslash( $_POST['srt_kinsta_recommended_php'] ) ) : '';
+			update_option( SRT_Kinsta::PHP_REC_OPT, $kinsta_php );
+
+			$gtmetrix_key = isset( $_POST['srt_gtmetrix_api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['srt_gtmetrix_api_key'] ) ) : '';
+			update_option( SRT_GTmetrix::API_KEY_OPT, $gtmetrix_key );
 
 			wp_safe_redirect( self::page_url( 'saved' ) );
 			exit;
@@ -301,40 +304,6 @@ class SRT_Admin_Settings {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="srt_wave_api_key"><?php esc_html_e( 'WAVE API key', 'rw-site-review-tasks' ); ?></label></th>
-						<td>
-							<?php // Masked on screen. autocomplete="off" keeps browsers from offering to save it as a password. ?>
-							<input type="password" name="srt_wave_api_key" id="srt_wave_api_key" value="<?php echo esc_attr( get_option( 'srt_wave_api_key', '' ) ); ?>" class="regular-text" autocomplete="off" spellcheck="false" placeholder="<?php esc_attr_e( 'Leave blank to skip accessibility scanning', 'rw-site-review-tasks' ); ?>" />
-							<button type="button" class="button button-secondary srt-toggle-secret" data-target="srt_wave_api_key" aria-pressed="false"><?php esc_html_e( 'Show', 'rw-site-review-tasks' ); ?></button>
-							<p class="description">
-								<?php
-								printf(
-									/* translators: %s: WAVE API link */
-									esc_html__( 'Optional. Get a key at %s (~$4/month for 500 pages). When set, each new task runs an accessibility scan against the company\'s website URL.', 'rw-site-review-tasks' ),
-									'<a href="https://wave.webaim.org/api" target="_blank" rel="noopener">wave.webaim.org/api</a>'
-								);
-								?>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="srt_psi_api_key"><?php esc_html_e( 'Google PageSpeed API key', 'rw-site-review-tasks' ); ?></label></th>
-						<td>
-							<?php // Masked on screen. autocomplete="off" keeps browsers from offering to save it as a password. ?>
-							<input type="password" name="srt_psi_api_key" id="srt_psi_api_key" value="<?php echo esc_attr( get_option( 'srt_psi_api_key', '' ) ); ?>" class="regular-text" autocomplete="off" spellcheck="false" placeholder="<?php esc_attr_e( 'Optional — leave blank to run keyless (lower quota)', 'rw-site-review-tasks' ); ?>" />
-							<button type="button" class="button button-secondary srt-toggle-secret" data-target="srt_psi_api_key" aria-pressed="false"><?php esc_html_e( 'Show', 'rw-site-review-tasks' ); ?></button>
-							<p class="description">
-								<?php
-								printf(
-									/* translators: %s: Google API console link */
-									esc_html__( 'Optional. Create a key in %s (enable the "PageSpeed Insights API"). Free. When PageSpeed is enabled on a company, each site scan adds Lighthouse scores (performance, SEO, accessibility, best practices) and Core Web Vitals for the homepage.', 'rw-site-review-tasks' ),
-									'<a href="https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com" target="_blank" rel="noopener">Google Cloud Console</a>'
-								);
-								?>
-							</p>
-						</td>
-					</tr>
-					<tr>
 						<th scope="row"><label for="srt_mail_from_name"><?php esc_html_e( 'Email “From” name', 'rw-site-review-tasks' ); ?></label></th>
 						<td>
 							<input type="text" name="srt_mail_from_name" id="srt_mail_from_name" value="<?php echo esc_attr( get_option( SRT_Mailer::FROM_NAME_OPT, '' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ) ); ?>" />
@@ -381,7 +350,7 @@ class SRT_Admin_Settings {
 						<td>
 							<input type="url" name="srt_webhook_url" id="srt_webhook_url" value="<?php echo esc_attr( get_option( SRT_Webhook::URL_OPT, '' ) ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'https://hooks.zapier.com/…', 'rw-site-review-tasks' ); ?>" />
 							<p class="description">
-								<?php esc_html_e( 'When a task is saved as Completed or Needs Work, this site POSTs a JSON payload here — a Zapier or Make webhook trigger, an n8n workflow, a Slack incoming webhook, or a CRM endpoint. Leave blank to disable; nothing is sent anywhere until a URL is saved.', 'rw-site-review-tasks' ); ?>
+								<?php esc_html_e( 'When a task is saved as Completed or Save Draft, this site POSTs a JSON payload here — a Zapier or Make webhook trigger, an n8n workflow, a Slack incoming webhook, or a CRM endpoint. Leave blank to disable; nothing is sent anywhere until a URL is saved.', 'rw-site-review-tasks' ); ?>
 							</p>
 							<p class="description">
 								<?php esc_html_e( 'Payload fields: event, task_id, status ("completed" or "needs_work"), status_label, previous_status, company_id, company_name, period, task_url, site, timestamp.', 'rw-site-review-tasks' ); ?>
@@ -407,6 +376,45 @@ class SRT_Admin_Settings {
 									/* translators: %d: hard entry cap */
 									esc_html__( 'How long to keep Run log entries. Older entries are removed the next time the log is written. Set 0 to keep entries until the %d-entry limit is reached.', 'rw-site-review-tasks' ),
 									(int) SRT_Cron::LOG_CAP
+								);
+								?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="srt_kinsta_api_key"><?php esc_html_e( 'Kinsta API key', 'rw-site-review-tasks' ); ?></label></th>
+						<td>
+							<input type="password" name="srt_kinsta_api_key" id="srt_kinsta_api_key" value="<?php echo esc_attr( get_option( SRT_Kinsta::API_KEY_OPT, '' ) ); ?>" class="regular-text" autocomplete="off" spellcheck="false" placeholder="<?php esc_attr_e( 'Leave blank to skip Kinsta data', 'rw-site-review-tasks' ); ?>" />
+							<button type="button" class="button button-secondary srt-toggle-secret" data-target="srt_kinsta_api_key" aria-pressed="false"><?php esc_html_e( 'Show', 'rw-site-review-tasks' ); ?></button>
+							<p class="description">
+								<?php
+								printf(
+									/* translators: %s: MyKinsta API keys link */
+									esc_html__( 'Create one under your username → Company settings → API Keys in %s. When set, and a company has a Kinsta Site ID, each task pulls plugin/theme/core update status, PHP version, and the last backup date from Kinsta.', 'rw-site-review-tasks' ),
+									'<a href="https://my.kinsta.com" target="_blank" rel="noopener">my.kinsta.com</a>'
+								);
+								?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="srt_kinsta_recommended_php"><?php esc_html_e( 'Recommended PHP version', 'rw-site-review-tasks' ); ?></label></th>
+						<td>
+							<input type="text" name="srt_kinsta_recommended_php" id="srt_kinsta_recommended_php" value="<?php echo esc_attr( get_option( SRT_Kinsta::PHP_REC_OPT, '8.3' ) ); ?>" class="small-text" />
+							<p class="description"><?php esc_html_e( 'A company\'s PHP Version item is flagged "Needs attention" when its Kinsta environment runs an older version than this. Update as newer PHP versions become the recommended baseline.', 'rw-site-review-tasks' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="srt_gtmetrix_api_key"><?php esc_html_e( 'GTmetrix API key', 'rw-site-review-tasks' ); ?></label></th>
+						<td>
+							<input type="password" name="srt_gtmetrix_api_key" id="srt_gtmetrix_api_key" value="<?php echo esc_attr( get_option( SRT_GTmetrix::API_KEY_OPT, '' ) ); ?>" class="regular-text" autocomplete="off" spellcheck="false" placeholder="<?php esc_attr_e( 'Leave blank to skip Page Load Speed testing', 'rw-site-review-tasks' ); ?>" />
+							<button type="button" class="button button-secondary srt-toggle-secret" data-target="srt_gtmetrix_api_key" aria-pressed="false"><?php esc_html_e( 'Show', 'rw-site-review-tasks' ); ?></button>
+							<p class="description">
+								<?php
+								printf(
+									/* translators: %s: GTmetrix API key link */
+									esc_html__( 'Find your key under Account → GTmetrix API in %s. When set, each task runs a GTmetrix Page Load Speed test on the company\'s website URL. Free-tier accounts get a limited daily test allowance — see GTmetrix\'s plan details if you\'re reviewing many companies.', 'rw-site-review-tasks' ),
+									'<a href="https://gtmetrix.com/api/" target="_blank" rel="noopener">gtmetrix.com</a>'
 								);
 								?>
 							</p>
@@ -478,7 +486,7 @@ class SRT_Admin_Settings {
 
 			<h2><?php esc_html_e( 'Integrations', 'rw-site-review-tasks' ); ?></h2>
 			<p class="description" style="max-width:44rem;">
-				<?php esc_html_e( 'When a task is saved as Completed or Needs Work, this site can POST a JSON payload to a URL of your choosing — a Zapier or Make webhook trigger, an n8n workflow, a Slack incoming webhook, or a CRM endpoint. Configure the URL and secret in "Pages & Access" above; no further changes here are needed to add or change a destination, that happens on the receiving side.', 'rw-site-review-tasks' ); ?>
+				<?php esc_html_e( 'When a task is saved as Completed or Save Draft, this site can POST a JSON payload to a URL of your choosing — a Zapier or Make webhook trigger, an n8n workflow, a Slack incoming webhook, or a CRM endpoint. Configure the URL and secret in "Pages & Access" above; no further changes here are needed to add or change a destination, that happens on the receiving side.', 'rw-site-review-tasks' ); ?>
 			</p>
 			<form method="post">
 				<?php wp_nonce_field( 'srt_test_webhook', 'srt_test_webhook_nonce' ); ?>

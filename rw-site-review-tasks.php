@@ -2,7 +2,7 @@
 /**
  * Plugin Name: RW Site Review Tasks
  * Description: Auto-creates a monthly website review task per company, assigned to a maker, with a checklist, comments, screenshots, and a front-end maker dashboard.
- * Version: 0.2.5
+ * Version: 0.3.1
  * Author: Rosewood Dev
  * Author URI: https://github.com/Jared-Nolt/rw-site-review-tasks
  * Text Domain: rw-site-review-tasks
@@ -19,14 +19,16 @@ define( 'SRT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
 require_once SRT_PLUGIN_DIR . 'includes/class-cpt-company.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-cpt-task.php';
-require_once SRT_PLUGIN_DIR . 'includes/class-cpt-checklist.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-acf-fields.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-roles.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-mailer.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-webhook.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-cron.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-site-scanner.php';
+require_once SRT_PLUGIN_DIR . 'includes/class-kinsta.php';
+require_once SRT_PLUGIN_DIR . 'includes/class-gtmetrix.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-admin-settings.php';
+require_once SRT_PLUGIN_DIR . 'includes/class-results-admin.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-import.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-maker-dashboard.php';
 require_once SRT_PLUGIN_DIR . 'includes/class-task-frontend.php';

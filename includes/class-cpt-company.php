@@ -16,6 +16,28 @@ class SRT_CPT_Company {
 		add_action( 'admin_post_srt_run_company', array( __CLASS__, 'handle_run_company' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'run_company_notice' ) );
 		add_action( 'acf/save_post', array( __CLASS__, 'snap_due_date_to_rule' ), 20 );
+		add_action( 'acf/save_post', array( __CLASS__, 'seed_default_checklist' ), 20 );
+	}
+
+	/**
+	 * Seeds the default checklist sections the first time a company is saved
+	 * with an empty checklist — new companies (and any existing company whose
+	 * checklist was cleared out) start from the standard Security Overview /
+	 * Content and User Experience sections instead of a blank repeater. Once
+	 * the field holds anything, this is a no-op.
+	 */
+	public static function seed_default_checklist( $post_id ) {
+		if ( self::POST_TYPE !== get_post_type( $post_id ) ) {
+			return;
+		}
+
+		$existing = get_field( 'checklist', $post_id );
+
+		if ( ! empty( $existing ) ) {
+			return;
+		}
+
+		update_field( 'checklist', srt_default_checklist_items(), $post_id );
 	}
 
 	/**
@@ -97,8 +119,12 @@ class SRT_CPT_Company {
 		}
 
 		if ( 'srt_checklist' === $column ) {
-			$checklist_id = get_field( 'checklist_template', $post_id );
-			echo $checklist_id ? esc_html( get_the_title( $checklist_id ) ) : '&#8212;';
+			$items = get_field( 'checklist', $post_id );
+			$count = is_array( $items ) ? count( $items ) : 0;
+			echo $count
+				/* translators: %d: number of checklist items */
+				? esc_html( sprintf( _n( '%d item', '%d items', $count, 'rw-site-review-tasks' ), $count ) )
+				: '&#8212;';
 		}
 
 		if ( 'srt_interval' === $column ) {

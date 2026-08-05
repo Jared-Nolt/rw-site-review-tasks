@@ -106,6 +106,18 @@ class SRT_Task_Frontend {
 			update_field( 'extra_notes', sanitize_textarea_field( wp_unslash( $_POST['srt_extra_notes'] ) ), $task_id );
 		}
 
+		if ( isset( $_POST['srt_kinsta_security_notes'] ) ) {
+			update_field( 'kinsta_security_notes', sanitize_textarea_field( wp_unslash( $_POST['srt_kinsta_security_notes'] ) ), $task_id );
+		}
+
+		if ( isset( $_POST['srt_kinsta_backups_notes'] ) ) {
+			update_field( 'kinsta_backups_notes', sanitize_textarea_field( wp_unslash( $_POST['srt_kinsta_backups_notes'] ) ), $task_id );
+		}
+
+		if ( isset( $_POST['srt_kinsta_bot_protection_notes'] ) ) {
+			update_field( 'kinsta_bot_protection_notes', sanitize_textarea_field( wp_unslash( $_POST['srt_kinsta_bot_protection_notes'] ) ), $task_id );
+		}
+
 		if ( isset( $_POST['srt_status'] ) ) {
 			$old_status = get_field( 'status', $task_id );
 			$status     = wp_unslash( $_POST['srt_status'] );
@@ -205,28 +217,35 @@ class SRT_Task_Frontend {
 				<?php echo wp_kses_post( srt_format_people_line( $task_id ) ); ?>
 			</p>
 
-			<?php
-			$scan_results = get_post_meta( $task_id, SRT_Site_Scanner::META_KEY, true );
-			if ( $scan_results ) :
-				?>
-				<div class="srt-scan-wrapper">
-					<h3 class="srt-scan-heading"><?php esc_html_e( 'Site Scan Results', 'rw-site-review-tasks' ); ?></h3>
-					<p class="srt-scan-meta">
-						<?php
-						printf(
-							/* translators: %s: timestamp */
-							esc_html__( 'Last scanned: %s', 'rw-site-review-tasks' ),
-							esc_html( $scan_results['scanned_at'] )
-						);
-						?>
-					</p>
-					<?php echo SRT_Site_Scanner::render_results_html( $scan_results ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-				</div>
-			<?php endif; ?>
+			<?php echo self::render_notices(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
 			<form method="post" enctype="multipart/form-data" class="srt-checklist-form">
 				<?php wp_nonce_field( 'srt_task_' . $task_id, 'srt_task_nonce' ); ?>
 				<input type="hidden" name="task_id" value="<?php echo esc_attr( $task_id ); ?>" />
+
+				<?php
+				$scan_results = get_post_meta( $task_id, SRT_Site_Scanner::META_KEY, true );
+				if ( $scan_results ) :
+					?>
+					<div class="srt-scan-wrapper">
+						<h3 class="srt-group-title"><?php esc_html_e( 'Site Scan Results', 'rw-site-review-tasks' ); ?></h3>
+						<p class="srt-scan-meta">
+							<?php
+							printf(
+								/* translators: %s: timestamp */
+								esc_html__( 'Last scanned: %s', 'rw-site-review-tasks' ),
+								esc_html( $scan_results['scanned_at'] )
+							);
+							?>
+						</p>
+						<?php echo SRT_Site_Scanner::render_results_html( $scan_results, true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+						<p><a href="<?php echo esc_url( SRT_Site_Scanner::rescan_url( $task_id, srt_task_page_url( $task_id ) ) ); ?>" class="button srt-refresh-link"><?php esc_html_e( 'Re-scan now', 'rw-site-review-tasks' ); ?></a></p>
+					</div>
+				<?php endif; ?>
+
+				<?php echo self::render_kinsta_section( $task_id, $company_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+
+				<?php echo self::render_gtmetrix_section( $task_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
 				<div class="srt-checklist-item srt-task-summary">
 					<label>
@@ -248,7 +267,7 @@ class SRT_Task_Frontend {
 						endif;
 						?>
 						<div class="srt-checklist-item">
-							<?php echo self::render_item( $i, $row ); ?>
+							<?php echo self::render_item( $i, $row, $task_id ); ?>
 						</div>
 					<?php endforeach; ?>
 				<?php else : ?>
@@ -257,7 +276,7 @@ class SRT_Task_Frontend {
 
 				<div class="srt-checklist-item srt-task-notes">
 					<label>
-						<strong><?php esc_html_e( 'Extra Notes', 'rw-site-review-tasks' ); ?></strong><br />
+						<strong><?php esc_html_e( 'Extra Notes for MG', 'rw-site-review-tasks' ); ?></strong><br />
 						<textarea name="srt_extra_notes" rows="4" class="srt-checklist-textarea"><?php echo esc_textarea( $notes ); ?></textarea>
 					</label>
 				</div>
@@ -271,7 +290,7 @@ class SRT_Task_Frontend {
 						</label>
 						<label class="srt-checklist-choice">
 							<input type="radio" name="srt_status" value="needs_work" <?php checked( $status, 'needs_work' ); ?> />
-							<?php esc_html_e( 'Needs Work', 'rw-site-review-tasks' ); ?>
+							<?php esc_html_e( 'Save Draft', 'rw-site-review-tasks' ); ?>
 						</label>
 					</fieldset>
 				</div>
@@ -285,7 +304,7 @@ class SRT_Task_Frontend {
 		return ob_get_clean();
 	}
 
-	private static function render_item( $i, $row ) {
+	private static function render_item( $i, $row, $task_id = 0 ) {
 		ob_start();
 
 		switch ( $row['field_type'] ) {
@@ -353,6 +372,143 @@ class SRT_Task_Frontend {
 				break;
 		}
 
+		return ob_get_clean();
+	}
+
+	/**
+	 * Success notices for the rescan/refresh links below — mirrors the
+	 * wp-admin notices in class-site-scanner.php / class-kinsta.php /
+	 * class-gtmetrix.php, which never reach this page since it isn't in
+	 * wp-admin.
+	 */
+	private static function render_notices() {
+		$messages = array();
+
+		if ( isset( $_GET['srt_notice'] ) && 'rescanned' === $_GET['srt_notice'] ) {
+			$messages[] = __( 'Site scan complete. Results updated below.', 'rw-site-review-tasks' );
+		}
+
+		if ( ! empty( $_GET['srt_kinsta'] ) ) {
+			$map = array(
+				'security_refreshed' => __( 'Security Overview refreshed.', 'rw-site-review-tasks' ),
+				'backups_refreshed'  => __( 'Backups refreshed.', 'rw-site-review-tasks' ),
+			);
+			$key = sanitize_key( wp_unslash( $_GET['srt_kinsta'] ) );
+			if ( isset( $map[ $key ] ) ) {
+				$messages[] = $map[ $key ];
+			}
+		}
+
+		if ( ! empty( $_GET['srt_gtmetrix'] ) && 'refresh_started' === $_GET['srt_gtmetrix'] ) {
+			$messages[] = __( 'GTmetrix test started — results will appear here in about a minute.', 'rw-site-review-tasks' );
+		}
+
+		if ( ! $messages ) {
+			return '';
+		}
+
+		$html = '';
+		foreach ( $messages as $message ) {
+			$html .= '<p class="srt-task-notice">' . esc_html( $message ) . '</p>';
+		}
+		return $html;
+	}
+
+	/**
+	 * "Kinsta Data" section: Security Overview and Backups, each with a
+	 * Refresh link and a notes textarea. Independent of the checklist —
+	 * mirrors the admin meta box's states so a maker/marketing guide (who
+	 * usually can't open wp-admin at all) can see and refresh the same data
+	 * there. Bot Protection is intentionally not shown here — it's a manual,
+	 * admin-only entry (see class-kinsta.php) that only ever appears on the
+	 * Marketing Guide PDF.
+	 */
+	private static function render_kinsta_section( $task_id, $company_id ) {
+		$site_id = $company_id ? trim( (string) get_field( 'kinsta_site_id', $company_id ) ) : '';
+
+		ob_start();
+		?>
+		<div class="srt-scan-wrapper">
+			<h3 class="srt-group-title"><?php esc_html_e( 'Kinsta Data', 'rw-site-review-tasks' ); ?></h3>
+			<?php if ( ! $site_id ) : ?>
+				<p class="srt-scan-meta"><?php esc_html_e( 'No Kinsta Site ID set on the company — add one on the company edit screen to enable this.', 'rw-site-review-tasks' ); ?></p>
+			<?php else : ?>
+				<?php
+				$results  = SRT_Kinsta::get_results( $task_id );
+				$security = isset( $results['security'] ) ? $results['security'] : array();
+				$backups  = isset( $results['backups'] ) ? $results['backups'] : array();
+				$return   = srt_task_page_url( $task_id );
+				?>
+				<h4 class="srt-subheading"><?php esc_html_e( 'Security Overview', 'rw-site-review-tasks' ); ?></h4>
+				<?php if ( empty( $security ) ) : ?>
+					<p class="srt-scan-meta"><?php esc_html_e( 'Not fetched yet — runs automatically alongside the site scan.', 'rw-site-review-tasks' ); ?></p>
+				<?php elseif ( isset( $security['error'] ) ) : ?>
+					<p class="srt-scan-meta"><?php echo esc_html( $security['error'] ); ?></p>
+				<?php else : ?>
+					<?php echo SRT_Kinsta::render_security_overview_html( 0, $security ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+				<?php endif; ?>
+				<p><a href="<?php echo esc_url( SRT_Kinsta::security_refresh_url( $task_id, $return ) ); ?>" class="button srt-refresh-link"><?php esc_html_e( 'Refresh Security Overview', 'rw-site-review-tasks' ); ?></a></p>
+				<div class="srt-checklist-item">
+					<label>
+						<strong><?php esc_html_e( 'Security Overview Notes', 'rw-site-review-tasks' ); ?></strong><br />
+						<textarea name="srt_kinsta_security_notes" rows="3" class="srt-checklist-textarea"><?php echo esc_textarea( get_field( 'kinsta_security_notes', $task_id ) ); ?></textarea>
+					</label>
+				</div>
+
+				<h4 class="srt-subheading"><?php esc_html_e( 'Backups', 'rw-site-review-tasks' ); ?></h4>
+				<?php if ( empty( $backups ) ) : ?>
+					<p class="srt-scan-meta"><?php esc_html_e( 'Not fetched yet — runs automatically alongside the site scan.', 'rw-site-review-tasks' ); ?></p>
+				<?php elseif ( isset( $backups['error'] ) ) : ?>
+					<p class="srt-scan-meta"><?php echo esc_html( $backups['error'] ); ?></p>
+				<?php else : ?>
+					<p class="srt-scan-meta">
+						<?php
+						echo esc_html(
+							! empty( $backups['last_backup'] )
+								/* translators: %s: last backup date */
+								? sprintf( __( 'Last backup: %s', 'rw-site-review-tasks' ), $backups['last_backup'] )
+								: __( 'No backups found.', 'rw-site-review-tasks' )
+						);
+						?>
+					</p>
+				<?php endif; ?>
+				<p><a href="<?php echo esc_url( SRT_Kinsta::backups_refresh_url( $task_id, $return ) ); ?>" class="button srt-refresh-link"><?php esc_html_e( 'Refresh Backups', 'rw-site-review-tasks' ); ?></a></p>
+				<div class="srt-checklist-item">
+					<label>
+						<strong><?php esc_html_e( 'Backups Notes', 'rw-site-review-tasks' ); ?></strong><br />
+						<textarea name="srt_kinsta_backups_notes" rows="3" class="srt-checklist-textarea"><?php echo esc_textarea( get_field( 'kinsta_backups_notes', $task_id ) ); ?></textarea>
+					</label>
+				</div>
+			<?php endif; ?>
+		</div>
+		<?php
+		return ob_get_clean();
+	}
+
+	/**
+	 * "Page Load Speed (GTmetrix)" section — mirrors the admin meta box's
+	 * not-tested/pending/error/ready states, plus a Refresh link.
+	 */
+	private static function render_gtmetrix_section( $task_id ) {
+		$results = SRT_GTmetrix::get_results( $task_id );
+		$status  = isset( $results['status'] ) ? $results['status'] : '';
+
+		ob_start();
+		?>
+		<div class="srt-scan-wrapper">
+			<h3 class="srt-group-title"><?php esc_html_e( 'Page Load Speed (GTmetrix)', 'rw-site-review-tasks' ); ?></h3>
+			<?php if ( '' === $status ) : ?>
+				<p class="srt-scan-meta"><?php esc_html_e( 'Not tested yet — runs automatically alongside the site scan.', 'rw-site-review-tasks' ); ?></p>
+			<?php elseif ( 'pending' === $status ) : ?>
+				<p class="srt-scan-meta"><?php esc_html_e( 'Test running — GTmetrix tests typically take under a minute. Reload this page shortly.', 'rw-site-review-tasks' ); ?></p>
+			<?php elseif ( 'error' === $status ) : ?>
+				<p class="srt-scan-meta"><?php echo esc_html( isset( $results['error'] ) ? $results['error'] : __( 'Unknown error.', 'rw-site-review-tasks' ) ); ?></p>
+			<?php else : ?>
+				<?php echo SRT_GTmetrix::render_table_html( $results ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+			<?php endif; ?>
+			<p><a href="<?php echo esc_url( SRT_GTmetrix::refresh_url( $task_id, srt_task_page_url( $task_id ) ) ); ?>" class="button srt-refresh-link"><?php esc_html_e( 'Refresh Page Load Speed', 'rw-site-review-tasks' ); ?></a></p>
+		</div>
+		<?php
 		return ob_get_clean();
 	}
 }

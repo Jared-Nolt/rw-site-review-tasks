@@ -194,13 +194,40 @@ class SRT_Task_Print {
 				.rw-item-label { font-weight: 700; }
 				.rw-item-text { display: block; margin-top: 0.15rem; }
 
+				/* Subsection headings inside Kinsta Data: Security Overview / Backups /
+				   Bot Protection (Bot Protection MG PDF only) */
+				.rw-subheading {
+					font-family: "Open Sans", Arial, Helvetica, sans-serif;
+					font-weight: 700;
+					font-size: 11pt;
+					color: var(--rw-gold);
+					margin: 1rem 0 0.35rem;
+				}
+
+				/* GTmetrix Page Load Speed comparison — vertical rows, previous/current columns */
+				.rw-gtmetrix-table {
+					margin-top: 0.4rem;
+					border-collapse: collapse;
+					font-family: "Open Sans", Arial, Helvetica, sans-serif;
+					font-size: 9.5pt;
+				}
+				.rw-gtmetrix-table th,
+				.rw-gtmetrix-table td {
+					padding: 0.25rem 0.9rem 0.25rem 0;
+					text-align: left;
+				}
+				.rw-gtmetrix-table thead th { color: var(--rw-muted); font-weight: 700; }
+				.rw-gtmetrix-table .rw-gtmetrix-dates th { font-weight: 400; font-size: 8.5pt; color: var(--rw-muted); }
+				.rw-gtmetrix-table tbody td:first-child { font-weight: 700; }
+
 				.rw-gallery { margin-top: 0.35rem; }
 				.rw-gallery img {
-					max-width: 150px;
 					margin: 0 0.4rem 0.4rem 0;
 					border: 1px solid #d8cfc2;
 					border-radius: 3px;
 					vertical-align: top;
+					height: auto;
+					max-width: 550px;
 				}
 				.rw-notes {
 					margin-top: 2rem;
@@ -376,8 +403,20 @@ class SRT_Task_Print {
 					</div>
 				<?php endif; ?>
 
-				<?php if ( is_array( $rows ) && ! empty( $rows ) ) : ?>
-					<?php foreach ( self::group_rows_by_section( $rows ) as $group ) : ?>
+				<?php
+				$visible_groups = array();
+				if ( is_array( $rows ) && ! empty( $rows ) ) {
+					foreach ( self::group_rows_by_section( $rows ) as $group ) {
+						$visible_rows = array_values( array_filter( $group['rows'], array( __CLASS__, 'row_has_answer' ) ) );
+						if ( $visible_rows ) {
+							$visible_groups[] = array( 'section' => $group['section'], 'rows' => $visible_rows );
+						}
+					}
+				}
+				?>
+
+				<?php if ( $visible_groups ) : ?>
+					<?php foreach ( $visible_groups as $group ) : ?>
 						<div class="rw-section">
 							<?php if ( '' !== $group['section'] ) : ?>
 								<h2 class="rw-heading"><?php echo esc_html( $group['section'] ); ?></h2>
@@ -396,6 +435,15 @@ class SRT_Task_Print {
 					<p><?php esc_html_e( 'This task has no checklist items.', 'rw-site-review-tasks' ); ?></p>
 				<?php endif; ?>
 
+				<?php
+				// Kinsta Data and Page Load Speed are independent of the checklist —
+				// they're fetched data, not something contingent on a matching
+				// checklist item existing and being answered — so they're always
+				// considered here, on both the Client and MG PDF.
+				echo self::render_kinsta_section_html( $task_id, $is_mg ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				echo self::render_gtmetrix_section_html( $task_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				?>
+
 				<?php if ( $is_mg && $scan ) : ?>
 					<div class="rw-section rw-scan">
 						<h2 class="rw-heading"><?php esc_html_e( 'Site Scan Results', 'rw-site-review-tasks' ); ?></h2>
@@ -405,7 +453,7 @@ class SRT_Task_Print {
 
 				<?php if ( $is_mg ) : ?>
 					<div class="rw-section rw-notes">
-						<h2 class="rw-heading"><?php esc_html_e( 'Extra Notes', 'rw-site-review-tasks' ); ?></h2>
+						<h2 class="rw-heading"><?php esc_html_e( 'Extra Notes for MG', 'rw-site-review-tasks' ); ?></h2>
 						<div class="rw-answer"><?php echo '' !== $notes ? nl2br( esc_html( $notes ) ) : '&#8212;'; ?></div>
 					</div>
 				<?php endif; ?>
@@ -428,6 +476,92 @@ class SRT_Task_Print {
 		</body>
 		</html>
 		<?php
+	}
+
+	/**
+	 * "Kinsta Data" section — Security Overview, Backups, and (Marketing Guide
+	 * PDF only) Bot Protection, each with its notes field. Independent of the
+	 * checklist entirely, unlike the earlier design where this only appeared
+	 * beside a matching checklist item — a task with no checklist items (or a
+	 * checklist that didn't happen to include those labels) showed nothing at
+	 * all. Shown on both the Client and MG PDF; each subsection (and the
+	 * section as a whole) is hidden when there's nothing to show.
+	 */
+	private static function render_kinsta_section_html( $task_id, $is_mg ) {
+		$results  = SRT_Kinsta::get_results( $task_id );
+		$security = isset( $results['security'] ) ? $results['security'] : array();
+		$backups  = isset( $results['backups'] ) ? $results['backups'] : array();
+
+		$security_html  = ( ! empty( $security ) && ! isset( $security['error'] ) ) ? SRT_Kinsta::render_security_overview_html( 0, $security ) : '';
+		$security_notes = trim( (string) get_field( 'kinsta_security_notes', $task_id ) );
+
+		$backups_html  = SRT_Kinsta::render_backups_html( $task_id, $backups );
+		$backups_notes = trim( (string) get_field( 'kinsta_backups_notes', $task_id ) );
+
+		$bot_html  = $is_mg ? SRT_Kinsta::render_bot_protection_html( $task_id ) : '';
+		$bot_notes = $is_mg ? trim( (string) get_field( 'kinsta_bot_protection_notes', $task_id ) ) : '';
+
+		$has_security = '' !== $security_html || '' !== $security_notes;
+		$has_backups  = '' !== $backups_html || '' !== $backups_notes;
+		$has_bot      = '' !== $bot_html || '' !== $bot_notes;
+
+		if ( ! $has_security && ! $has_backups && ! $has_bot ) {
+			return '';
+		}
+
+		ob_start();
+		?>
+		<div class="rw-section">
+			<h2 class="rw-heading"><?php esc_html_e( 'Kinsta Data', 'rw-site-review-tasks' ); ?></h2>
+
+			<?php if ( $has_security ) : ?>
+				<h3 class="rw-subheading"><?php esc_html_e( 'Security Overview', 'rw-site-review-tasks' ); ?></h3>
+				<?php echo $security_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+				<?php if ( '' !== $security_notes ) : ?>
+					<div class="rw-answer"><?php echo nl2br( esc_html( $security_notes ) ); ?></div>
+				<?php endif; ?>
+			<?php endif; ?>
+
+			<?php if ( $has_backups ) : ?>
+				<h3 class="rw-subheading"><?php esc_html_e( 'Backups', 'rw-site-review-tasks' ); ?></h3>
+				<?php echo $backups_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+				<?php if ( '' !== $backups_notes ) : ?>
+					<div class="rw-answer"><?php echo nl2br( esc_html( $backups_notes ) ); ?></div>
+				<?php endif; ?>
+			<?php endif; ?>
+
+			<?php if ( $has_bot ) : ?>
+				<h3 class="rw-subheading"><?php esc_html_e( 'Bot Protection', 'rw-site-review-tasks' ); ?></h3>
+				<?php echo $bot_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+				<?php if ( '' !== $bot_notes ) : ?>
+					<div class="rw-answer"><?php echo nl2br( esc_html( $bot_notes ) ); ?></div>
+				<?php endif; ?>
+			<?php endif; ?>
+		</div>
+		<?php
+		return ob_get_clean();
+	}
+
+	/**
+	 * "Page Load Speed (GTmetrix)" section — the Previous/Current comparison
+	 * table, independent of the checklist. Shown on both the Client and MG
+	 * PDF; hidden entirely when there's no completed run yet.
+	 */
+	private static function render_gtmetrix_section_html( $task_id ) {
+		$table = SRT_GTmetrix::render_table_html( null, $task_id );
+
+		if ( '' === $table ) {
+			return '';
+		}
+
+		ob_start();
+		?>
+		<div class="rw-section">
+			<h2 class="rw-heading"><?php esc_html_e( 'Page Load Speed (GTmetrix)', 'rw-site-review-tasks' ); ?></h2>
+			<?php echo $table; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+		</div>
+		<?php
+		return ob_get_clean();
 	}
 
 	/**
@@ -457,6 +591,28 @@ class SRT_Task_Print {
 		}
 
 		return $groups;
+	}
+
+	/**
+	 * Whether a checklist row has anything worth printing. Unanswered items
+	 * are hidden from the PDF entirely (not shown with a blank/placeholder
+	 * answer) — a section whose every item ends up hidden this way is itself
+	 * dropped by the caller so no empty heading is left behind.
+	 */
+	private static function row_has_answer( $row ) {
+		switch ( $row['field_type'] ) {
+			case 'checkbox':
+				return (bool) srt_lines_to_array( $row['answer'] );
+
+			case 'textarea':
+				return '' !== trim( (string) $row['answer'] );
+
+			case 'gallery':
+				return (bool) array_filter( array_map( 'absint', explode( ',', (string) $row['answer'] ) ) );
+
+			default: // radio
+				return '' !== trim( (string) $row['answer'] );
+		}
 	}
 
 	private static function render_answer( $row ) {

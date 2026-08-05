@@ -133,6 +133,63 @@
 	max-width: unset;
 }
 
+/* Subsection headings inside Kinsta Data (Security Overview / Backups / Bot
+   Protection) — one step down from .srt-group-title. */
+.srt-subheading {
+	margin: 1.25rem 0 0.5rem;
+	font-size: 1rem;
+	font-weight: 700;
+	color: #ad9661;
+}
+
+.srt-subheading:first-of-type {
+	margin-top: 0;
+}
+
+/* "Re-scan now" / "Refresh …" links on the front-end task page — there's no
+   wp-admin "button" stylesheet loaded here, so these get their own look. */
+.srt-refresh-link {
+	display: inline-block;
+	margin: 0.4rem 0 0.9rem;
+	padding: 0.4rem 0.9rem;
+	border: 1px solid #ad9661;
+	border-radius: 4px;
+	color: #ad9661 !important;
+	text-decoration: none;
+	font-size: 0.85rem;
+	font-weight: 600;
+}
+
+.srt-refresh-link:hover {
+	background: #ad9661;
+	color: #fff !important;
+}
+
+/* Success notices for rescan/refresh links (mirrors the wp-admin notices,
+   which never reach this front-end page). */
+.srt-task-notice {
+	margin: 0 0 1rem;
+	padding: 0.6rem 0.9rem;
+	background: #d4edda;
+	color: #1e7e34;
+	border-radius: 6px;
+	font-size: 0.9rem;
+}
+
+.srt-gtmetrix-table {
+	margin-top: 0.5rem;
+	border-collapse: collapse;
+	font-size: 0.85rem;
+}
+.srt-gtmetrix-table th,
+.srt-gtmetrix-table td {
+	padding: 0.25rem 1rem 0.25rem 0;
+	text-align: left;
+}
+.srt-gtmetrix-table thead th { color: #6f6660; font-weight: 700; }
+.srt-gtmetrix-table .rw-gtmetrix-dates th { font-weight: 400; font-size: 0.78rem; color: #6f6660; }
+.srt-gtmetrix-table tbody td:first-child { font-weight: 700; }
+
 .srt-checklist-submit {
 	margin-top: 0.5rem;
 }
@@ -169,11 +226,6 @@
 	margin-bottom: 2rem;
 	padding-bottom: 1.5rem;
 	border-bottom: 2px solid #eee;
-}
-
-.srt-scan-heading {
-	margin: 0 0 0.25rem;
-	font-size: 1.1rem;
 }
 
 .srt-scan-meta {
