@@ -341,30 +341,30 @@ function srt_default_checklist_items() {
 		),
 		array(
 			'section'    => 'Content and User Experience',
-			'field_type' => 'radio',
+			'field_type' => 'textarea',
 			'label'      => 'Content Check',
-			'choices'    => "Pass\nNeeds attention",
+			'choices'    => '',
 			'answer'     => '',
 		),
 		array(
 			'section'    => 'Content and User Experience',
-			'field_type' => 'radio',
+			'field_type' => 'textarea',
 			'label'      => 'Mobile Responsiveness',
-			'choices'    => "Pass\nNeeds attention",
+			'choices'    => '',
 			'answer'     => '',
 		),
 		array(
 			'section'    => 'Content and User Experience',
-			'field_type' => 'radio',
+			'field_type' => 'textarea',
 			'label'      => 'Form Functionality',
-			'choices'    => "Pass\nNeeds attention",
+			'choices'    => '',
 			'answer'     => '',
 		),
 		array(
 			'section'    => 'Content and User Experience',
-			'field_type' => 'radio',
+			'field_type' => 'textarea',
 			'label'      => 'Cart & Checkout Functionality',
-			'choices'    => "Pass\nNeeds attention",
+			'choices'    => '',
 			'answer'     => '',
 		),
 		array(
@@ -819,14 +819,13 @@ function srt_register_acf_fields() {
 					'type'         => 'repeater',
 					'layout'       => 'table',
 					'button_label' => 'Add Item',
-					'instructions' => 'Snapshotted from the company\'s checklist when this task was created. Structure is locked; only Answer is editable here.',
+					'instructions' => 'Snapshotted from the company\'s checklist when this task was created. Only Answer is meant to be edited here — avoid changing Section/Type/Label/Choices, which are shown for reference.',
 					'sub_fields'   => array(
 						array(
 							'key'      => 'field_srt_task_checklist_section',
 							'label'    => 'Section',
 							'name'     => 'section',
 							'type'     => 'text',
-							'readonly' => 1,
 						),
 						array(
 							'key'           => 'field_srt_task_checklist_type',
@@ -839,14 +838,12 @@ function srt_register_acf_fields() {
 								'textarea' => 'Textarea',
 								'gallery'  => 'Gallery',
 							),
-							'readonly'      => 1,
 						),
 						array(
 							'key'      => 'field_srt_task_checklist_label',
 							'label'    => 'Label',
 							'name'     => 'label',
 							'type'     => 'text',
-							'readonly' => 1,
 						),
 						array(
 							'key'      => 'field_srt_task_checklist_choices',
@@ -854,7 +851,6 @@ function srt_register_acf_fields() {
 							'name'     => 'choices',
 							'type'     => 'textarea',
 							'rows'     => 2,
-							'readonly' => 1,
 						),
 						array(
 							'key'   => 'field_srt_task_checklist_answer',

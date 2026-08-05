@@ -548,7 +548,7 @@ class SRT_Task_Print {
 	 * PDF; hidden entirely when there's no completed run yet.
 	 */
 	private static function render_gtmetrix_section_html( $task_id ) {
-		$table = SRT_GTmetrix::render_table_html( null, $task_id );
+		$table = SRT_GTmetrix::render_table_html( null, $task_id, true );
 
 		if ( '' === $table ) {
 			return '';
@@ -600,32 +600,39 @@ class SRT_Task_Print {
 	 * dropped by the caller so no empty heading is left behind.
 	 */
 	private static function row_has_answer( $row ) {
+		// Some rows on older tasks can be missing the 'answer' key entirely
+		// (e.g. a row that never had a value stored) — treat that the same
+		// as an empty answer rather than throwing an undefined-key notice.
+		$answer = isset( $row['answer'] ) ? $row['answer'] : '';
+
 		switch ( $row['field_type'] ) {
 			case 'checkbox':
-				return (bool) srt_lines_to_array( $row['answer'] );
+				return (bool) srt_lines_to_array( $answer );
 
 			case 'textarea':
-				return '' !== trim( (string) $row['answer'] );
+				return '' !== trim( (string) $answer );
 
 			case 'gallery':
-				return (bool) array_filter( array_map( 'absint', explode( ',', (string) $row['answer'] ) ) );
+				return (bool) array_filter( array_map( 'absint', explode( ',', (string) $answer ) ) );
 
 			default: // radio
-				return '' !== trim( (string) $row['answer'] );
+				return '' !== trim( (string) $answer );
 		}
 	}
 
 	private static function render_answer( $row ) {
+		$answer = isset( $row['answer'] ) ? $row['answer'] : '';
+
 		switch ( $row['field_type'] ) {
 			case 'checkbox':
-				$selected = srt_lines_to_array( $row['answer'] );
+				$selected = srt_lines_to_array( $answer );
 				return $selected ? esc_html( implode( ', ', $selected ) ) : '&#8212;';
 
 			case 'textarea':
-				return '' !== $row['answer'] ? nl2br( esc_html( $row['answer'] ) ) : '&#8212;';
+				return '' !== $answer ? nl2br( esc_html( $answer ) ) : '&#8212;';
 
 			case 'gallery':
-				$ids = array_filter( array_map( 'absint', explode( ',', (string) $row['answer'] ) ) );
+				$ids = array_filter( array_map( 'absint', explode( ',', (string) $answer ) ) );
 
 				if ( ! $ids ) {
 					return '&#8212;';

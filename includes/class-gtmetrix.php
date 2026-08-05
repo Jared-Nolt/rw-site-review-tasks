@@ -47,7 +47,7 @@ class SRT_GTmetrix {
 
 	public static function init() {
 		add_action( self::START_HOOK, array( __CLASS__, 'start_test' ) );
-		add_action( self::POLL_HOOK, array( __CLASS__, 'poll_test' ), 10, 2 );
+		add_action( self::POLL_HOOK, array( __CLASS__, 'poll_test' ), 10, 3 );
 		add_action( 'add_meta_boxes', array( __CLASS__, 'add_meta_box' ) );
 		add_action( 'admin_post_' . self::REFRESH_ACTION, array( __CLASS__, 'handle_refresh' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'maybe_show_notice' ) );
@@ -66,22 +66,62 @@ class SRT_GTmetrix {
 	// Start + poll
 	// -------------------------------------------------------------------------
 
+	/**
+	 * URL list for a company: homepage first, then up to 5 manually added
+	 * "Additional Pages to Scan" (the same `scan_pages` field the broken-link
+	 * scanner uses) — same homepage-plus-5, 6-max contract as
+	 * SRT_Site_Scanner::run().
+	 */
+	private static function scan_urls( $company_id ) {
+		$base_url = get_field( 'website_url', $company_id );
+
+		if ( ! $base_url ) {
+			return array();
+		}
+
+		$urls        = array( $base_url );
+		$extra_pages = get_field( 'scan_pages', $company_id );
+
+		if ( is_array( $extra_pages ) ) {
+			foreach ( $extra_pages as $page ) {
+				if ( ! empty( $page['page_url'] ) ) {
+					$urls[] = $page['page_url'];
+				}
+			}
+		}
+
+		return array_slice( array_unique( $urls ), 0, 6 ); // homepage + max 5
+	}
+
+	/**
+	 * Starts one GTmetrix test per page (homepage plus any Additional Pages
+	 * to Scan). Each page is tracked independently under $results['pages'][i]
+	 * so one page's failure or slow poll never blocks the others.
+	 */
 	public static function start_test( $task_id ) {
 		$company_id = get_field( 'company', $task_id );
-		$url        = $company_id ? get_field( 'website_url', $company_id ) : '';
+		$urls       = $company_id ? self::scan_urls( $company_id ) : array();
 
-		if ( ! $url ) {
-			self::store_error( $task_id, __( 'No website URL set on the company.', 'rw-site-review-tasks' ) );
+		if ( ! $urls ) {
+			self::store_page_error( $task_id, 0, '', __( 'No website URL set on the company.', 'rw-site-review-tasks' ) );
 			return;
 		}
 
 		$key = self::api_key();
 
 		if ( ! $key ) {
-			self::store_error( $task_id, __( 'No GTmetrix API key set in Settings.', 'rw-site-review-tasks' ) );
+			foreach ( $urls as $index => $url ) {
+				self::store_page_error( $task_id, $index, $url, __( 'No GTmetrix API key set in Settings.', 'rw-site-review-tasks' ) );
+			}
 			return;
 		}
 
+		foreach ( $urls as $index => $url ) {
+			self::start_page_test( $task_id, $index, $url, $key );
+		}
+	}
+
+	private static function start_page_test( $task_id, $index, $url, $key ) {
 		$response = wp_remote_post(
 			self::API_BASE . '/tests',
 			array(
@@ -103,7 +143,7 @@ class SRT_GTmetrix {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			self::store_error( $task_id, $response->get_error_message() );
+			self::store_page_error( $task_id, $index, $url, $response->get_error_message() );
 			return;
 		}
 
@@ -115,32 +155,38 @@ class SRT_GTmetrix {
 				? $data['errors'][0]['detail']
 				/* translators: %d: HTTP status code */
 				: sprintf( __( 'GTmetrix returned HTTP %d.', 'rw-site-review-tasks' ), $code );
-			self::store_error( $task_id, $msg );
+			self::store_page_error( $task_id, $index, $url, $msg );
 			return;
 		}
 
 		$test_id = isset( $data['data']['id'] ) ? $data['data']['id'] : '';
 
 		if ( ! $test_id ) {
-			self::store_error( $task_id, __( 'Unexpected response from GTmetrix.', 'rw-site-review-tasks' ) );
+			self::store_page_error( $task_id, $index, $url, __( 'Unexpected response from GTmetrix.', 'rw-site-review-tasks' ) );
 			return;
 		}
 
-		$results = self::get_results( $task_id );
-		unset( $results['error'] );
-		$results['status']  = 'pending';
-		$results['test_id'] = $test_id;
-		update_post_meta( $task_id, self::META_KEY, $results );
+		self::update_page(
+			$task_id,
+			$index,
+			array(
+				'url'     => $url,
+				'status'  => 'pending',
+				'test_id' => $test_id,
+			)
+		);
 
-		wp_schedule_single_event( time() + self::POLL_INTERVAL, self::POLL_HOOK, array( $task_id, 1 ) );
+		wp_schedule_single_event( time() + self::POLL_INTERVAL, self::POLL_HOOK, array( $task_id, $index, 1 ) );
 	}
 
-	public static function poll_test( $task_id, $attempt = 1 ) {
+	public static function poll_test( $task_id, $page_index, $attempt = 1 ) {
 		$results = self::get_results( $task_id );
-		$test_id = isset( $results['test_id'] ) ? $results['test_id'] : '';
+		$page    = isset( $results['pages'][ $page_index ] ) ? $results['pages'][ $page_index ] : array();
+		$test_id = isset( $page['test_id'] ) ? $page['test_id'] : '';
+		$url     = isset( $page['url'] ) ? $page['url'] : '';
 
 		if ( ! $test_id ) {
-			return; // Nothing to poll for (e.g. a fresh start_test() error already handled it).
+			return; // Nothing to poll for (e.g. a fresh start error already handled it).
 		}
 
 		$key      = self::api_key();
@@ -156,7 +202,7 @@ class SRT_GTmetrix {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			self::store_error( $task_id, $response->get_error_message() );
+			self::store_page_error( $task_id, $page_index, $url, $response->get_error_message() );
 			return;
 		}
 
@@ -165,16 +211,16 @@ class SRT_GTmetrix {
 
 		if ( in_array( $state, array( 'queued', 'started' ), true ) ) {
 			if ( $attempt >= self::MAX_POLL_ATTEMPTS ) {
-				self::store_error( $task_id, __( 'GTmetrix test timed out waiting for a result.', 'rw-site-review-tasks' ) );
+				self::store_page_error( $task_id, $page_index, $url, __( 'GTmetrix test timed out waiting for a result.', 'rw-site-review-tasks' ) );
 				return;
 			}
-			wp_schedule_single_event( time() + self::POLL_INTERVAL, self::POLL_HOOK, array( $task_id, $attempt + 1 ) );
+			wp_schedule_single_event( time() + self::POLL_INTERVAL, self::POLL_HOOK, array( $task_id, $page_index, $attempt + 1 ) );
 			return;
 		}
 
 		if ( 'error' === $state ) {
 			$msg = isset( $data['data']['attributes']['error'] ) ? $data['data']['attributes']['error'] : __( 'GTmetrix test failed.', 'rw-site-review-tasks' );
-			self::store_error( $task_id, $msg );
+			self::store_page_error( $task_id, $page_index, $url, $msg );
 			return;
 		}
 
@@ -183,14 +229,14 @@ class SRT_GTmetrix {
 		$attrs = isset( $data['data']['attributes'] ) ? $data['data']['attributes'] : array();
 
 		if ( ! isset( $attrs['performance_score'] ) && ! isset( $attrs['gtmetrix_grade'] ) ) {
-			self::store_error( $task_id, __( 'Unexpected response from GTmetrix.', 'rw-site-review-tasks' ) );
+			self::store_page_error( $task_id, $page_index, $url, __( 'Unexpected response from GTmetrix.', 'rw-site-review-tasks' ) );
 			return;
 		}
 
-		self::apply_report( $task_id, $attrs );
+		self::apply_page_report( $task_id, $page_index, $url, $attrs );
 	}
 
-	private static function apply_report( $task_id, $attrs ) {
+	private static function apply_page_report( $task_id, $page_index, $url, $attrs ) {
 		$new = array(
 			'grade'       => isset( $attrs['gtmetrix_grade'] ) ? $attrs['gtmetrix_grade'] : '',
 			'performance' => isset( $attrs['performance_score'] ) ? (int) $attrs['performance_score'] : null,
@@ -202,27 +248,60 @@ class SRT_GTmetrix {
 		);
 
 		$results = self::get_results( $task_id );
+		$page    = isset( $results['pages'][ $page_index ] ) ? $results['pages'][ $page_index ] : array();
 
 		// Only promote to "previous" if there was a genuinely completed prior
-		// run — not a stale pending/error state left over from a failed test.
-		if ( ! empty( $results['current'] ) && isset( $results['status'] ) && 'ready' === $results['status'] ) {
-			$results['previous'] = $results['current'];
+		// run on this page — not a stale pending/error state left over from a
+		// failed test.
+		if ( ! empty( $page['current'] ) && isset( $page['status'] ) && 'ready' === $page['status'] ) {
+			$page['previous'] = $page['current'];
 		}
 
-		$results['current'] = $new;
-		$results['status']  = 'ready';
-		unset( $results['error'], $results['test_id'] );
+		$page['url']     = $url;
+		$page['current'] = $new;
+		$page['status']  = 'ready';
+		unset( $page['error'], $page['test_id'] );
 
-		update_post_meta( $task_id, self::META_KEY, $results );
+		self::update_page( $task_id, $page_index, $page );
 
-		self::apply_to_checklist( $task_id, $new );
+		// The checklist's single "Page Load Speed" answer still auto-fills
+		// from the homepage only — per-page detail is for the report tables.
+		if ( 0 === $page_index ) {
+			self::apply_to_checklist( $task_id, $new );
+		}
 	}
 
-	private static function store_error( $task_id, $message ) {
+	private static function store_page_error( $task_id, $page_index, $url, $message ) {
 		$results = self::get_results( $task_id );
-		$results['status'] = 'error';
-		$results['error']  = $message;
-		unset( $results['test_id'] );
+		$page    = isset( $results['pages'][ $page_index ] ) ? $results['pages'][ $page_index ] : array();
+
+		if ( $url ) {
+			$page['url'] = $url;
+		}
+
+		$page['status'] = 'error';
+		$page['error']  = $message;
+		unset( $page['test_id'] );
+
+		self::update_page( $task_id, $page_index, $page );
+	}
+
+	/**
+	 * Merges $data into $results['pages'][$page_index] and persists — the one
+	 * write path every page update goes through, so updating one page never
+	 * clobbers its siblings' entries.
+	 */
+	private static function update_page( $task_id, $page_index, $data ) {
+		$results = self::get_results( $task_id );
+
+		if ( ! isset( $results['pages'] ) || ! is_array( $results['pages'] ) ) {
+			$results['pages'] = array();
+		}
+
+		$existing                        = isset( $results['pages'][ $page_index ] ) ? $results['pages'][ $page_index ] : array();
+		$results['pages'][ $page_index ] = array_merge( $existing, $data );
+		ksort( $results['pages'] );
+
 		update_post_meta( $task_id, self::META_KEY, $results );
 	}
 
@@ -341,14 +420,9 @@ class SRT_GTmetrix {
 		}
 
 		$results = self::get_results( $post->ID );
-		$status  = isset( $results['status'] ) ? $results['status'] : '';
 
-		if ( '' === $status ) {
+		if ( empty( $results['pages'] ) ) {
 			echo '<p>' . esc_html__( 'Not tested yet — runs automatically alongside the site scan.', 'rw-site-review-tasks' ) . '</p>';
-		} elseif ( 'pending' === $status ) {
-			echo '<p>' . esc_html__( 'Test running — GTmetrix tests typically take under a minute. Reload this screen shortly.', 'rw-site-review-tasks' ) . '</p>';
-		} elseif ( 'error' === $status ) {
-			echo '<p class="srt-scan-meta">' . esc_html( isset( $results['error'] ) ? $results['error'] : __( 'Unknown error.', 'rw-site-review-tasks' ) ) . '</p>';
 		} else {
 			echo self::render_table_html( $results ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		}
@@ -383,21 +457,85 @@ class SRT_GTmetrix {
 	}
 
 	/**
-	 * The Page Load Speed comparison block — previous run beside the current
-	 * one, column-titled, per spec. Returns '' when there's no completed run
-	 * yet (nothing to show on a pending/errored/never-run task).
+	 * The Page Load Speed report — one block per scanned page (homepage plus
+	 * any Additional Pages to Scan), each with its own not-tested/pending/
+	 * error/ready state and previous-vs-current comparison table.
+	 *
+	 * @param array|null $results    Full results array; fetched from $task_id if omitted.
+	 * @param int        $task_id
+	 * @param bool       $ready_only When true, pages that aren't 'ready' are skipped
+	 *                               entirely and '' is returned if none are ready —
+	 *                               used by the PDFs, which only show completed runs.
 	 */
-	public static function render_table_html( $results = null, $task_id = 0 ) {
+	public static function render_table_html( $results = null, $task_id = 0, $ready_only = false ) {
 		if ( null === $results ) {
 			$results = self::get_results( $task_id );
 		}
 
-		if ( empty( $results['current'] ) || 'ready' !== ( isset( $results['status'] ) ? $results['status'] : '' ) ) {
+		$pages = isset( $results['pages'] ) && is_array( $results['pages'] ) ? $results['pages'] : array();
+
+		if ( ! $pages ) {
 			return '';
 		}
 
-		$current  = $results['current'];
-		$previous = isset( $results['previous'] ) ? $results['previous'] : null;
+		$blocks = array();
+
+		foreach ( $pages as $index => $page ) {
+			$status = isset( $page['status'] ) ? $page['status'] : '';
+
+			if ( $ready_only && 'ready' !== $status ) {
+				continue;
+			}
+
+			$blocks[] = self::render_page_block( $index, $page );
+		}
+
+		if ( ! $blocks ) {
+			return '';
+		}
+
+		return '<div class="srt-gtmetrix-results">' . implode( '', $blocks ) . '</div>';
+	}
+
+	private static function render_page_block( $index, $page ) {
+		$is_homepage = ( 0 === $index );
+		$status      = isset( $page['status'] ) ? $page['status'] : '';
+		$url         = isset( $page['url'] ) ? $page['url'] : '';
+
+		ob_start();
+		?>
+		<div class="srt-scan-page">
+			<h4 class="srt-scan-page-title">
+				<?php echo $is_homepage ? esc_html__( 'Homepage', 'rw-site-review-tasks' ) : esc_html__( 'Page', 'rw-site-review-tasks' ); ?>
+				<?php if ( $url ) : ?>
+					&mdash;
+					<a href="<?php echo esc_url( $url ); ?>" target="_blank" rel="noopener" class="srt-scan-page-url"><?php echo esc_html( $url ); ?></a>
+				<?php endif; ?>
+			</h4>
+			<?php if ( '' === $status ) : ?>
+				<p class="srt-scan-meta"><?php esc_html_e( 'Not tested yet.', 'rw-site-review-tasks' ); ?></p>
+			<?php elseif ( 'pending' === $status ) : ?>
+				<p class="srt-scan-meta"><?php esc_html_e( 'Test running — GTmetrix tests typically take under a minute. Reload shortly.', 'rw-site-review-tasks' ); ?></p>
+			<?php elseif ( 'error' === $status ) : ?>
+				<p class="srt-scan-meta"><?php echo esc_html( isset( $page['error'] ) ? $page['error'] : __( 'Unknown error.', 'rw-site-review-tasks' ) ); ?></p>
+			<?php else : ?>
+				<?php echo self::render_metrics_table( $page ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+			<?php endif; ?>
+		</div>
+		<?php
+		return ob_get_clean();
+	}
+
+	/**
+	 * The Previous/Current comparison table for a single page's report.
+	 */
+	private static function render_metrics_table( $page ) {
+		$current  = isset( $page['current'] ) ? $page['current'] : array();
+		$previous = isset( $page['previous'] ) ? $page['previous'] : null;
+
+		if ( empty( $current ) ) {
+			return '';
+		}
 
 		$rows = array(
 			array( __( 'Grade', 'rw-site-review-tasks' ), $current['grade'], $previous ? $previous['grade'] : '' ),
@@ -417,13 +555,11 @@ class SRT_GTmetrix {
 					<th><?php esc_html_e( 'Previous', 'rw-site-review-tasks' ); ?></th>
 					<th><?php esc_html_e( 'Current', 'rw-site-review-tasks' ); ?></th>
 				</tr>
-				<?php if ( $previous || $current ) : ?>
-					<tr class="rw-gtmetrix-dates">
-						<th></th>
-						<th><?php echo $previous ? esc_html( $previous['tested_at'] ) : '&#8212;'; ?></th>
-						<th><?php echo esc_html( $current['tested_at'] ); ?></th>
-					</tr>
-				<?php endif; ?>
+				<tr class="rw-gtmetrix-dates">
+					<th></th>
+					<th><?php echo $previous ? esc_html( $previous['tested_at'] ) : '&#8212;'; ?></th>
+					<th><?php echo esc_html( $current['tested_at'] ); ?></th>
+				</tr>
 			</thead>
 			<tbody>
 				<?php foreach ( $rows as $row ) : ?>

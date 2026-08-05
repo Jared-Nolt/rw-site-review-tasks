@@ -105,15 +105,18 @@ class SRT_Results_Admin {
 			$company_id = (int) get_field( 'company', $post->ID );
 
 			$rows[] = array(
-				'task_id'      => $post->ID,
-				'company_id'   => $company_id,
-				'company_name' => $company_id ? get_the_title( $company_id ) : '',
-				'period'       => get_field( 'period', $post->ID ),
-				'status_slug'  => $tag_slug,
-				'status_label' => srt_get_task_tag_label( $tag_slug ),
-				'maker_name'   => self::user_name( (int) get_field( 'maker', $post->ID ) ),
-				'mg_name'      => self::user_name( (int) get_field( 'marketing_guide', $post->ID ) ),
-				'created'      => get_the_date( 'Y-m-d H:i', $post ),
+				'task_id'        => $post->ID,
+				'company_id'     => $company_id,
+				'company_name'   => $company_id ? get_the_title( $company_id ) : '',
+				'period'         => get_field( 'period', $post->ID ),
+				'status_slug'    => $tag_slug,
+				'status_label'   => srt_get_task_tag_label( $tag_slug ),
+				'maker_name'     => self::user_name( (int) get_field( 'maker', $post->ID ) ),
+				'mg_name'        => self::user_name( (int) get_field( 'marketing_guide', $post->ID ) ),
+				'created'        => get_the_date( 'Y-m-d H:i', $post ),
+				'security_items' => self::security_summary( $post->ID ),
+				'last_backup'    => self::last_backup( $post->ID ),
+				'gtmetrix_items' => self::gtmetrix_summary( $post->ID ),
 			);
 		}
 
@@ -126,6 +129,99 @@ class SRT_Results_Admin {
 		}
 		$user = get_userdata( $user_id );
 		return $user ? $user->display_name : '—';
+	}
+
+	/**
+	 * Core/Plugins/Theme/PHP status from Kinsta's Security Overview, as a flat
+	 * list of { label, status } — status is 'ok' or 'attention', matching
+	 * SRT_Kinsta's own values so the same badge styling applies here.
+	 */
+	private static function security_summary( $task_id ) {
+		$results  = SRT_Kinsta::get_results( $task_id );
+		$security = isset( $results['security'] ) ? $results['security'] : array();
+
+		if ( empty( $security ) || isset( $security['error'] ) ) {
+			return array();
+		}
+
+		$labels = array(
+			'core'    => __( 'Core', 'rw-site-review-tasks' ),
+			'plugins' => __( 'Plugins', 'rw-site-review-tasks' ),
+			'theme'   => __( 'Theme', 'rw-site-review-tasks' ),
+			'php'     => __( 'PHP', 'rw-site-review-tasks' ),
+		);
+
+		$items = array();
+
+		foreach ( $labels as $key => $label ) {
+			if ( ! isset( $security[ $key ]['status'] ) ) {
+				continue;
+			}
+
+			$items[] = array(
+				'label'  => $label,
+				'status' => $security[ $key ]['status'],
+			);
+		}
+
+		return $items;
+	}
+
+	/**
+	 * Kinsta's last completed backup date, or '' if none / not fetched.
+	 */
+	private static function last_backup( $task_id ) {
+		$results = SRT_Kinsta::get_results( $task_id );
+		$backups = isset( $results['backups'] ) ? $results['backups'] : array();
+
+		if ( empty( $backups ) || isset( $backups['error'] ) || empty( $backups['last_backup'] ) ) {
+			return '';
+		}
+
+		return $backups['last_backup'];
+	}
+
+	/**
+	 * GTmetrix Page Load Speed for every scanned page (homepage plus any
+	 * Additional Pages to Scan), as a flat list of { label, value }.
+	 */
+	private static function gtmetrix_summary( $task_id ) {
+		$results = SRT_GTmetrix::get_results( $task_id );
+		$pages   = isset( $results['pages'] ) && is_array( $results['pages'] ) ? $results['pages'] : array();
+
+		if ( ! $pages ) {
+			return array();
+		}
+
+		$items = array();
+
+		foreach ( $pages as $index => $page ) {
+			if ( 0 === $index ) {
+				$label = __( 'Homepage', 'rw-site-review-tasks' );
+			} else {
+				$path  = isset( $page['url'] ) ? wp_parse_url( $page['url'], PHP_URL_PATH ) : '';
+				$label = $path ? $path : __( 'Page', 'rw-site-review-tasks' );
+			}
+
+			$status = isset( $page['status'] ) ? $page['status'] : '';
+
+			if ( 'ready' === $status && isset( $page['current']['performance'] ) && null !== $page['current']['performance'] ) {
+				$value = $page['current']['performance'] . '/100';
+			} elseif ( 'pending' === $status ) {
+				$value = __( 'Pending', 'rw-site-review-tasks' );
+			} elseif ( 'error' === $status ) {
+				$value = __( 'Error', 'rw-site-review-tasks' );
+			} else {
+				$value = '—';
+			}
+
+			$items[] = array(
+				'label' => $label,
+				'value' => $value,
+			);
+		}
+
+		return $items;
 	}
 
 	public static function render_page() {
@@ -176,6 +272,10 @@ class SRT_Results_Admin {
 				.srt-results-badge-ready { background: #d6e4ff; color: #1c4e9c; }
 				.srt-results-badge-overdue { background: #f8d7da; color: #a71d2a; }
 				.srt-results-badge-needs_work { background: #fff3cd; color: #8a6500; }
+				.srt-results-mini-list { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; line-height: 1.5; white-space: nowrap; }
+				.srt-results-mini-list li { display: block; }
+				.srt-results-mini-status-ok { color: #1e7e34; }
+				.srt-results-mini-status-attention { color: #a71d2a; font-weight: 600; }
 			</style>
 
 			<form method="get">
@@ -232,12 +332,15 @@ class SRT_Results_Admin {
 						<th><?php esc_html_e( 'Maker', 'rw-site-review-tasks' ); ?></th>
 						<th><?php esc_html_e( 'Marketing Guide', 'rw-site-review-tasks' ); ?></th>
 						<th><?php esc_html_e( 'Created', 'rw-site-review-tasks' ); ?></th>
+						<th><?php esc_html_e( 'Security Overview', 'rw-site-review-tasks' ); ?></th>
+						<th><?php esc_html_e( 'Last Backup', 'rw-site-review-tasks' ); ?></th>
+						<th><?php esc_html_e( 'Page Load Speed', 'rw-site-review-tasks' ); ?></th>
 						<th><?php esc_html_e( 'Task', 'rw-site-review-tasks' ); ?></th>
 					</tr>
 				</thead>
 				<tbody>
 					<?php if ( empty( $rows ) ) : ?>
-						<tr><td colspan="7"><?php esc_html_e( 'No tasks match these filters.', 'rw-site-review-tasks' ); ?></td></tr>
+						<tr><td colspan="10"><?php esc_html_e( 'No tasks match these filters.', 'rw-site-review-tasks' ); ?></td></tr>
 					<?php else : ?>
 						<?php foreach ( $rows as $row ) : ?>
 							<tr>
@@ -253,6 +356,34 @@ class SRT_Results_Admin {
 								<td><?php echo esc_html( $row['maker_name'] ); ?></td>
 								<td><?php echo esc_html( $row['mg_name'] ); ?></td>
 								<td><?php echo esc_html( $row['created'] ); ?></td>
+								<td>
+									<?php if ( empty( $row['security_items'] ) ) : ?>
+										&#8212;
+									<?php else : ?>
+										<ul class="srt-results-mini-list">
+											<?php foreach ( $row['security_items'] as $item ) : ?>
+												<li>
+													<?php echo esc_html( $item['label'] ); ?>:
+													<span class="srt-results-mini-status-<?php echo esc_attr( $item['status'] ); ?>">
+														<?php echo 'attention' === $item['status'] ? esc_html__( 'Needs attention', 'rw-site-review-tasks' ) : esc_html__( 'OK', 'rw-site-review-tasks' ); ?>
+													</span>
+												</li>
+											<?php endforeach; ?>
+										</ul>
+									<?php endif; ?>
+								</td>
+								<td><?php echo $row['last_backup'] ? esc_html( $row['last_backup'] ) : '&#8212;'; ?></td>
+								<td>
+									<?php if ( empty( $row['gtmetrix_items'] ) ) : ?>
+										&#8212;
+									<?php else : ?>
+										<ul class="srt-results-mini-list">
+											<?php foreach ( $row['gtmetrix_items'] as $item ) : ?>
+												<li><?php echo esc_html( $item['label'] ); ?>: <?php echo esc_html( $item['value'] ); ?></li>
+											<?php endforeach; ?>
+										</ul>
+									<?php endif; ?>
+								</td>
 								<td><a href="<?php echo esc_url( get_edit_post_link( $row['task_id'] ) ); ?>">#<?php echo esc_html( $row['task_id'] ); ?></a></td>
 							</tr>
 						<?php endforeach; ?>
@@ -287,7 +418,7 @@ class SRT_Results_Admin {
 		header( 'Content-Disposition: attachment; filename="srt-task-results-' . gmdate( 'Y-m-d' ) . '.csv"' );
 
 		$out = fopen( 'php://output', 'w' );
-		fputcsv( $out, array( 'Task ID', 'Company', 'Period', 'Status', 'Maker', 'Marketing Guide', 'Created', 'Task Edit URL' ) );
+		fputcsv( $out, array( 'Task ID', 'Company', 'Period', 'Status', 'Maker', 'Marketing Guide', 'Created', 'Security Overview', 'Last Backup', 'Page Load Speed', 'Task Edit URL' ) );
 
 		foreach ( $rows as $row ) {
 			fputcsv(
@@ -300,6 +431,9 @@ class SRT_Results_Admin {
 					$row['maker_name'],
 					$row['mg_name'],
 					$row['created'],
+					self::flatten_items( $row['security_items'], 'status' ),
+					$row['last_backup'],
+					self::flatten_items( $row['gtmetrix_items'], 'value' ),
 					get_edit_post_link( $row['task_id'], 'raw' ),
 				)
 			);
@@ -307,6 +441,25 @@ class SRT_Results_Admin {
 
 		fclose( $out );
 		exit;
+	}
+
+	/**
+	 * Flattens a { label, ... } list (security_items / gtmetrix_items) into
+	 * one "Label: value; Label: value" string for a single CSV cell.
+	 */
+	private static function flatten_items( $items, $value_key ) {
+		if ( empty( $items ) ) {
+			return '';
+		}
+
+		$parts = array();
+
+		foreach ( $items as $item ) {
+			$value   = isset( $item[ $value_key ] ) ? $item[ $value_key ] : '';
+			$parts[] = $item['label'] . ': ' . ( 'status' === $value_key ? ( 'attention' === $value ? 'Needs attention' : 'OK' ) : $value );
+		}
+
+		return implode( '; ', $parts );
 	}
 }
 

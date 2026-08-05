@@ -29,8 +29,7 @@ class SRT_Webhook {
 	}
 
 	/**
-	 * Builds the JSON-ready payload describing one status change. Kept as its
-	 * own method (rather than inlined) so send_test() can reuse the same shape.
+	 * Builds the JSON-ready payload describing one status change.
 	 */
 	public static function build_payload( $task_id, $status, $old_status ) {
 		$company_id = get_field( 'company', $task_id );
@@ -106,29 +105,6 @@ class SRT_Webhook {
 
 	public static function last_error() {
 		return self::$last_error;
-	}
-
-	/**
-	 * Sends a sample payload so an admin can verify the URL and secret from
-	 * the Settings screen without waiting for a real task to change status.
-	 */
-	public static function send_test() {
-		return self::send(
-			array(
-				'event'           => 'task_status_changed',
-				'test'            => true,
-				'task_id'         => 0,
-				'status'          => 'completed',
-				'status_label'    => srt_get_task_tag_label( 'completed' ),
-				'previous_status' => 'needs_work',
-				'company_id'      => null,
-				'company_name'    => __( 'Sample Company', 'rw-site-review-tasks' ),
-				'period'          => current_time( 'Y-m-d' ),
-				'task_url'        => home_url( '/' ),
-				'site'            => home_url( '/' ),
-				'timestamp'       => current_time( 'c' ),
-			)
-		);
 	}
 }
 

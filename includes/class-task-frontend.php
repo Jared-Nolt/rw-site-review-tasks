@@ -67,6 +67,15 @@ class SRT_Task_Frontend {
 
 		if ( is_array( $rows ) ) {
 			foreach ( $rows as $i => &$row ) {
+				// Older rows can be missing the 'answer' key entirely (e.g. a
+				// row whose value was never stored) — normalize it to an empty
+				// string so every branch below has something to work with, and
+				// so the row stays fixed even if this save doesn't produce a
+				// new valid value for it.
+				if ( ! isset( $row['answer'] ) ) {
+					$row['answer'] = '';
+				}
+
 				switch ( $row['field_type'] ) {
 					case 'radio':
 						$value   = isset( $posted[ $i ]['answer'] ) ? wp_unslash( $posted[ $i ]['answer'] ) : '';
@@ -271,7 +280,6 @@ class SRT_Task_Frontend {
 						</div>
 					<?php endforeach; ?>
 				<?php else : ?>
-					<p><?php esc_html_e( 'This task has no checklist items.', 'rw-site-review-tasks' ); ?></p>
 				<?php endif; ?>
 
 				<div class="srt-checklist-item srt-task-notes">
@@ -306,6 +314,12 @@ class SRT_Task_Frontend {
 
 	private static function render_item( $i, $row, $task_id = 0 ) {
 		ob_start();
+
+		// Older rows can be missing the 'answer' key entirely — treat that
+		// the same as an empty answer instead of throwing a notice.
+		if ( ! isset( $row['answer'] ) ) {
+			$row['answer'] = '';
+		}
 
 		switch ( $row['field_type'] ) {
 			case 'radio':
@@ -429,7 +443,7 @@ class SRT_Task_Frontend {
 		ob_start();
 		?>
 		<div class="srt-scan-wrapper">
-			<h3 class="srt-group-title"><?php esc_html_e( 'Kinsta Data', 'rw-site-review-tasks' ); ?></h3>
+			<h3 class="srt-group-title"><?php esc_html_e( 'Server Data', 'rw-site-review-tasks' ); ?></h3>
 			<?php if ( ! $site_id ) : ?>
 				<p class="srt-scan-meta"><?php esc_html_e( 'No Kinsta Site ID set on the company — add one on the company edit screen to enable this.', 'rw-site-review-tasks' ); ?></p>
 			<?php else : ?>
@@ -491,18 +505,13 @@ class SRT_Task_Frontend {
 	 */
 	private static function render_gtmetrix_section( $task_id ) {
 		$results = SRT_GTmetrix::get_results( $task_id );
-		$status  = isset( $results['status'] ) ? $results['status'] : '';
 
 		ob_start();
 		?>
 		<div class="srt-scan-wrapper">
 			<h3 class="srt-group-title"><?php esc_html_e( 'Page Load Speed (GTmetrix)', 'rw-site-review-tasks' ); ?></h3>
-			<?php if ( '' === $status ) : ?>
+			<?php if ( empty( $results['pages'] ) ) : ?>
 				<p class="srt-scan-meta"><?php esc_html_e( 'Not tested yet — runs automatically alongside the site scan.', 'rw-site-review-tasks' ); ?></p>
-			<?php elseif ( 'pending' === $status ) : ?>
-				<p class="srt-scan-meta"><?php esc_html_e( 'Test running — GTmetrix tests typically take under a minute. Reload this page shortly.', 'rw-site-review-tasks' ); ?></p>
-			<?php elseif ( 'error' === $status ) : ?>
-				<p class="srt-scan-meta"><?php echo esc_html( isset( $results['error'] ) ? $results['error'] : __( 'Unknown error.', 'rw-site-review-tasks' ) ); ?></p>
 			<?php else : ?>
 				<?php echo SRT_GTmetrix::render_table_html( $results ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 			<?php endif; ?>

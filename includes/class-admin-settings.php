@@ -79,81 +79,6 @@ class SRT_Admin_Settings {
 			exit;
 		}
 
-		if ( isset( $_POST['srt_send_test_email'] ) && check_admin_referer( 'srt_test_email', 'srt_test_email_nonce' ) ) {
-			wp_safe_redirect( self::page_url( self::send_test_email() ) );
-			exit;
-		}
-
-		if ( isset( $_POST['srt_send_test_webhook'] ) && check_admin_referer( 'srt_test_webhook', 'srt_test_webhook_nonce' ) ) {
-			wp_safe_redirect( self::page_url( self::send_test_webhook() ) );
-			exit;
-		}
-	}
-
-	/**
-	 * Sends a notification-shaped test message to the current user so the From
-	 * address and the transport can be verified without waiting for a real task.
-	 *
-	 * @return string Notice key for the redirect.
-	 */
-	private static function send_test_email() {
-		$user = wp_get_current_user();
-
-		if ( ! $user || ! is_email( $user->user_email ) ) {
-			return 'test_no_address';
-		}
-
-		$sent = SRT_Mailer::send(
-			$user->user_email,
-			__( 'Test: website review task notification', 'rw-site-review-tasks' ),
-			__( 'Email settings test', 'rw-site-review-tasks' ),
-			array(
-				__( 'This is a test of the review task notification email. If it reached your inbox rather than your spam folder, the From address and mail transport are working.', 'rw-site-review-tasks' ),
-				sprintf(
-					/* translators: %s: from address */
-					__( 'It was sent from %s.', 'rw-site-review-tasks' ),
-					SRT_Mailer::from_address()
-				),
-			),
-			admin_url( 'edit.php?post_type=' . SRT_CPT_Company::POST_TYPE ),
-			__( 'Open the Companies screen', 'rw-site-review-tasks' )
-		);
-
-		if ( $sent ) {
-			return 'test_sent';
-		}
-
-		$error = SRT_Mailer::last_error();
-
-		if ( $error ) {
-			set_transient( 'srt_test_email_error', $error, 60 );
-		}
-
-		return 'test_failed';
-	}
-
-	/**
-	 * Posts a sample "task completed" payload to the configured webhook URL so
-	 * an admin can verify the URL and secret without waiting for a real task.
-	 *
-	 * @return string Notice key for the redirect.
-	 */
-	private static function send_test_webhook() {
-		if ( ! trim( (string) get_option( SRT_Webhook::URL_OPT, '' ) ) ) {
-			return 'webhook_no_url';
-		}
-
-		if ( SRT_Webhook::send_test() ) {
-			return 'webhook_test_sent';
-		}
-
-		$error = SRT_Webhook::last_error();
-
-		if ( $error ) {
-			set_transient( 'srt_test_webhook_error', $error, 60 );
-		}
-
-		return 'webhook_test_failed';
 	}
 
 	private static function page_url( $notice ) {
@@ -182,54 +107,6 @@ class SRT_Admin_Settings {
 
 			<?php if ( 'saved' === $notice ) : ?>
 				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Settings saved.', 'rw-site-review-tasks' ); ?></p></div>
-			<?php endif; ?>
-
-			<?php if ( 'test_sent' === $notice ) : ?>
-				<div class="notice notice-success is-dismissible">
-					<p>
-						<?php
-						printf(
-							/* translators: %s: recipient email address */
-							esc_html__( 'Test email handed off to the mail server for %s. Check your inbox and your spam folder — if it landed in spam, the notes below explain why.', 'rw-site-review-tasks' ),
-							esc_html( wp_get_current_user()->user_email )
-						);
-						?>
-					</p>
-				</div>
-			<?php endif; ?>
-
-			<?php if ( 'test_failed' === $notice ) : ?>
-				<?php $test_error = get_transient( 'srt_test_email_error' ); ?>
-				<div class="notice notice-error is-dismissible">
-					<p><?php esc_html_e( 'The test email could not be sent. WordPress rejected it before it left the site, so no review notifications are going out either.', 'rw-site-review-tasks' ); ?></p>
-					<?php if ( $test_error ) : ?>
-						<p><code><?php echo esc_html( $test_error ); ?></code></p>
-					<?php endif; ?>
-				</div>
-				<?php delete_transient( 'srt_test_email_error' ); ?>
-			<?php endif; ?>
-
-			<?php if ( 'test_no_address' === $notice ) : ?>
-				<div class="notice notice-error is-dismissible"><p><?php esc_html_e( 'Your user account has no valid email address, so there is nowhere to send the test.', 'rw-site-review-tasks' ); ?></p></div>
-			<?php endif; ?>
-
-			<?php if ( 'webhook_test_sent' === $notice ) : ?>
-				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Test webhook sent — the receiving server accepted it (2xx response).', 'rw-site-review-tasks' ); ?></p></div>
-			<?php endif; ?>
-
-			<?php if ( 'webhook_test_failed' === $notice ) : ?>
-				<?php $webhook_test_error = get_transient( 'srt_test_webhook_error' ); ?>
-				<div class="notice notice-error is-dismissible">
-					<p><?php esc_html_e( 'The test webhook could not be delivered.', 'rw-site-review-tasks' ); ?></p>
-					<?php if ( $webhook_test_error ) : ?>
-						<p><code><?php echo esc_html( $webhook_test_error ); ?></code></p>
-					<?php endif; ?>
-				</div>
-				<?php delete_transient( 'srt_test_webhook_error' ); ?>
-			<?php endif; ?>
-
-			<?php if ( 'webhook_no_url' === $notice ) : ?>
-				<div class="notice notice-error is-dismissible"><p><?php esc_html_e( 'Add a webhook URL below and save settings before sending a test.', 'rw-site-review-tasks' ); ?></p></div>
 			<?php endif; ?>
 
 			<h2><?php esc_html_e( 'Pages & Access', 'rw-site-review-tasks' ); ?></h2>
@@ -444,57 +321,6 @@ class SRT_Admin_Settings {
 				} );
 			} );
 			</script>
-
-			<hr />
-
-			<h2><?php esc_html_e( 'Email deliverability', 'rw-site-review-tasks' ); ?></h2>
-			<p class="description" style="max-width:44rem;">
-				<?php esc_html_e( 'Notification emails are sent as HTML with a plain-text alternative, from the address configured above, with the return path aligned to it. That covers what this plugin controls. Whether they reach the inbox mostly depends on two things it cannot control:', 'rw-site-review-tasks' ); ?>
-			</p>
-			<ol class="description" style="max-width:44rem;">
-				<li>
-					<?php esc_html_e( 'Authenticated SMTP. Mail sent through PHP’s built-in mail() from a web host’s shared IP is the most common reason notifications land in spam, and some hosts (Kinsta among them) do not deliver it at all. Route mail through a transactional provider — Postmark, SendGrid, Amazon SES, Mailgun, or Google Workspace SMTP — using an SMTP plugin.', 'rw-site-review-tasks' ); ?>
-				</li>
-				<li>
-					<?php
-					printf(
-						/* translators: %s: site domain */
-						esc_html__( 'DNS records on %s: an SPF record listing whichever service sends the mail, a DKIM key from that service, and a DMARC record. Without these, a correct From address is not enough.', 'rw-site-review-tasks' ),
-						esc_html( SRT_Mailer::site_domain() )
-					);
-					?>
-				</li>
-			</ol>
-			<form method="post">
-				<?php wp_nonce_field( 'srt_test_email', 'srt_test_email_nonce' ); ?>
-				<p>
-					<button type="submit" name="srt_send_test_email" value="1" class="button"><?php esc_html_e( 'Send test email to me', 'rw-site-review-tasks' ); ?></button>
-					<span class="description">
-						<?php
-						printf(
-							/* translators: 1: current user email, 2: effective from address */
-							esc_html__( 'Sends a sample notification to %1$s from %2$s.', 'rw-site-review-tasks' ),
-							esc_html( wp_get_current_user()->user_email ),
-							esc_html( SRT_Mailer::from_address() )
-						);
-						?>
-					</span>
-				</p>
-			</form>
-
-			<hr />
-
-			<h2><?php esc_html_e( 'Integrations', 'rw-site-review-tasks' ); ?></h2>
-			<p class="description" style="max-width:44rem;">
-				<?php esc_html_e( 'When a task is saved as Completed or Save Draft, this site can POST a JSON payload to a URL of your choosing — a Zapier or Make webhook trigger, an n8n workflow, a Slack incoming webhook, or a CRM endpoint. Configure the URL and secret in "Pages & Access" above; no further changes here are needed to add or change a destination, that happens on the receiving side.', 'rw-site-review-tasks' ); ?>
-			</p>
-			<form method="post">
-				<?php wp_nonce_field( 'srt_test_webhook', 'srt_test_webhook_nonce' ); ?>
-				<p>
-					<button type="submit" name="srt_send_test_webhook" value="1" class="button"><?php esc_html_e( 'Send test webhook', 'rw-site-review-tasks' ); ?></button>
-					<span class="description"><?php esc_html_e( 'Posts a sample "completed" payload to the currently saved webhook URL.', 'rw-site-review-tasks' ); ?></span>
-				</p>
-			</form>
 
 			<hr />
 
