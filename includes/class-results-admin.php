@@ -298,7 +298,7 @@ class SRT_Results_Admin {
 				.srt-results-badge-overdue { background: #f8d7da; color: #a71d2a; }
 				.srt-results-badge-needs_work { background: #fff3cd; color: #8a6500; }
 				.srt-results-status-ok { color: #1e7e34; white-space: nowrap; }
-				.srt-results-status-attention { color: #a71d2a; font-weight: 600; white-space: nowrap; }
+				.srt-results-status-attention { color: #a71d2a; font-weight: 600; }
 				.srt-column-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin: 1rem 0; }
 				.srt-column-toggles label { font-weight: 400; white-space: nowrap; }
 				.srt-results-table.srt-hide-maker th[data-col="maker"],
@@ -315,6 +315,11 @@ class SRT_Results_Admin {
 				.srt-results-table.srt-hide-pages td[data-col="pages"] {
 					display: none;
 				}
+				.srt-results-table-wrapper {display: block; overflow: scroll;}
+				.srt-page-score {border-left: 1px solid;}
+				.srt-results-table-wrapper::-webkit-scrollbar{width: 10px; height: 10px;}
+				.srt-results-table-wrapper::-webkit-scrollbar-thumb{background: #888; border-radius: 5px;}
+				.srt-results-table-wrapper::-webkit-scrollbar-thumb:hover{background: #555;}
 			</style>
 
 			<form method="get">
@@ -368,7 +373,7 @@ class SRT_Results_Admin {
 					<label><input type="checkbox" class="srt-col-toggle" data-col="<?php echo esc_attr( $key ); ?>" checked="checked" /> <?php echo esc_html( $label ); ?></label>
 				<?php endforeach; ?>
 			</p>
-
+		<div class="srt-results-table-wrapper">
 			<table class="widefat striped srt-results-table">
 				<thead>
 					<tr>
@@ -384,8 +389,8 @@ class SRT_Results_Admin {
 						<th data-col="security"><?php esc_html_e( 'PHP', 'rw-site-review-tasks' ); ?></th>
 						<th data-col="backup"><?php esc_html_e( 'Last Backup', 'rw-site-review-tasks' ); ?></th>
 						<?php for ( $i = 1; $i <= self::GTMETRIX_MAX_PAGES; $i++ ) : ?>
-							<th data-col="pages"><?php echo esc_html( sprintf( 'Page%d', $i ) ); ?></th>
-							<th data-col="pages"><?php echo esc_html( sprintf( 'Page%d URL', $i ) ); ?></th>
+							<th class="srt-page-score" data-col="pages"><?php echo esc_html( sprintf( 'Page%d', $i ) ); ?></th>
+							<th class="srt-page-link" data-col="pages"><?php echo esc_html( sprintf( 'Page%d URL', $i ) ); ?></th>
 						<?php endfor; ?>
 						<th><?php esc_html_e( 'Task', 'rw-site-review-tasks' ); ?></th>
 					</tr>
@@ -426,8 +431,8 @@ class SRT_Results_Admin {
 								<?php endforeach; ?>
 								<td data-col="backup"><?php echo $row['last_backup'] ? esc_html( $row['last_backup'] ) : '&#8212;'; ?></td>
 								<?php foreach ( $row['gtmetrix_pages'] as $page ) : ?>
-									<td data-col="pages"><?php echo null === $page ? '' : esc_html( $page['score'] ); ?></td>
-									<td data-col="pages">
+									<td class="srt-page-score" data-col="pages"><?php echo null === $page ? '' : esc_html( $page['score'] ); ?></td>
+									<td class="srt-page-link" data-col="pages">
 										<?php if ( null !== $page && '' !== $page['url'] ) : ?>
 											<a href="<?php echo esc_url( $page['url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( self::page_slug( $page['url'] ) ); ?></a>
 										<?php elseif ( null !== $page ) : ?>
@@ -441,7 +446,7 @@ class SRT_Results_Admin {
 					<?php endif; ?>
 				</tbody>
 			</table>
-
+		</div>
 			<script>
 			( function () {
 				var STORAGE_KEY = 'srt_results_hidden_columns';

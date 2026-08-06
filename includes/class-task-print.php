@@ -210,6 +210,8 @@ class SRT_Task_Print {
 					border-collapse: collapse;
 					font-family: "Open Sans", Arial, Helvetica, sans-serif;
 					font-size: 9.5pt;
+					padding: 0.45rem 0.7rem;
+					display: block;
 				}
 				.rw-gtmetrix-table th,
 				.rw-gtmetrix-table td {
@@ -238,14 +240,14 @@ class SRT_Task_Print {
 
 				/* Site Scan Results (MG report) — collapsed sections mirroring the dashboard */
 				.rw-scan .srt-scan-results { display: flex; flex-direction: column; gap: 0.9rem; margin-top: 0.4rem; }
-				.rw-scan .srt-scan-page { border: 1px solid #d8cfc2; border-radius: 6px; overflow: hidden; }
-				.rw-scan .srt-scan-page-title {
+				.srt-scan-page { border: 1px solid #d8cfc2; border-radius: 6px; overflow: hidden; margin: 1rem 0; }
+				.srt-scan-page-title {
 					margin: 0; padding: 0.5rem 0.7rem;
 					font-family: "Open Sans", Arial, Helvetica, sans-serif;
 					font-size: 9.5pt; font-weight: 700;
 					background: var(--rw-cream); border-bottom: 1px solid #d8cfc2;
 				}
-				.rw-scan .srt-scan-page-title a { color: inherit; text-decoration: none; }
+				.srt-scan-page-title a { color: inherit; text-decoration: none; }
 				.rw-scan .srt-scan-page-url { font-weight: 400; word-break: break-all; color: var(--rw-muted); }
 				.rw-scan .srt-scan-section { border-top: 1px solid #e8ddcd; }
 				.rw-scan .srt-scan-section:first-of-type { border-top: none; }
