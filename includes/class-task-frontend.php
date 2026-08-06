@@ -170,6 +170,13 @@ class SRT_Task_Frontend {
 				<?php wp_nonce_field( 'srt_task_' . $task_id, 'srt_task_nonce' ); ?>
 				<input type="hidden" name="task_id" value="<?php echo esc_attr( $task_id ); ?>" />
 
+				<div class="srt-checklist-item srt-task-summary">
+					<label>
+						<h3 class="srt-group-title"><?php esc_html_e( 'Executive Summary', 'rw-site-review-tasks' ); ?></h3><br />
+						<textarea name="srt_executive_summary" rows="4" class="srt-checklist-textarea"><?php echo esc_textarea( $summary ); ?></textarea>
+					</label>
+				</div>
+
 				<?php
 				$scan_results = get_post_meta( $task_id, SRT_Site_Scanner::META_KEY, true );
 				if ( $scan_results ) :
@@ -186,7 +193,7 @@ class SRT_Task_Frontend {
 							?>
 						</p>
 						<?php echo SRT_Site_Scanner::render_results_html( $scan_results, true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-						<p><a href="<?php echo esc_url( SRT_Site_Scanner::rescan_url( $task_id, srt_task_page_url( $task_id ) ) ); ?>" class="button srt-refresh-link"><?php esc_html_e( 'Re-scan now', 'rw-site-review-tasks' ); ?></a></p>
+						<a href="<?php echo esc_url( SRT_Site_Scanner::rescan_url( $task_id, srt_task_page_url( $task_id ) ) ); ?>" class="button srt-refresh-link"><?php esc_html_e( 'Re-scan now', 'rw-site-review-tasks' ); ?></a>
 					</div>
 				<?php endif; ?>
 
@@ -194,14 +201,8 @@ class SRT_Task_Frontend {
 
 				<?php echo self::render_gtmetrix_section( $task_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-				<div class="srt-checklist-item srt-task-summary">
-					<label>
-						<strong><?php esc_html_e( 'Executive Summary', 'rw-site-review-tasks' ); ?></strong><br />
-						<textarea name="srt_executive_summary" rows="4" class="srt-checklist-textarea"><?php echo esc_textarea( $summary ); ?></textarea>
-					</label>
-				</div>
-
 				<?php if ( is_array( $rows ) && ! empty( $rows ) ) : ?>
+				<div class="srt-checklist-item">
 					<?php $current_section = null; ?>
 					<?php foreach ( $rows as $i => $row ) : ?>
 						<?php
@@ -213,16 +214,16 @@ class SRT_Task_Frontend {
 							<?php
 						endif;
 						?>
-						<div class="srt-checklist-item">
+						<div >
 							<?php echo self::render_item( $i, $row, $task_id ); ?>
 						</div>
 					<?php endforeach; ?>
 				<?php else : ?>
 				<?php endif; ?>
-
+				</div>
 				<div class="srt-checklist-item srt-task-notes">
 					<label>
-						<strong><?php esc_html_e( 'Extra Notes for MG', 'rw-site-review-tasks' ); ?></strong><br />
+						<h3 class="srt-group-title"><?php esc_html_e( 'Extra Notes for MG', 'rw-site-review-tasks' ); ?></h3><br />
 						<textarea name="srt_extra_notes" rows="4" class="srt-checklist-textarea"><?php echo esc_textarea( $notes ); ?></textarea>
 					</label>
 				</div>
@@ -389,7 +390,7 @@ class SRT_Task_Frontend {
 			<?php else : ?>
 				<?php echo SRT_GTmetrix::render_table_html( $results ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 			<?php endif; ?>
-			<p><a href="<?php echo esc_url( SRT_GTmetrix::refresh_url( $task_id, srt_task_page_url( $task_id ) ) ); ?>" class="button srt-refresh-link"><?php esc_html_e( 'Refresh Page Load Speed', 'rw-site-review-tasks' ); ?></a></p>
+			<a href="<?php echo esc_url( SRT_GTmetrix::refresh_url( $task_id, srt_task_page_url( $task_id ) ) ); ?>" class="button srt-refresh-link"><?php esc_html_e( 'Refresh Page Load Speed', 'rw-site-review-tasks' ); ?></a>
 		</div>
 		<?php
 		return ob_get_clean();

@@ -100,10 +100,18 @@
 	margin-top: 0;
 }
 
-.srt-checklist-item {
-	margin-bottom: 1rem;
+.srt-checklist-item, .srt-scan-wrapper {
+	margin-bottom: 1.5rem;
+	padding-bottom: 2rem;
+	border-bottom: 1px solid #B81237;
+}
+.srt-checklist-item > div:not(:last-child){
+	margin: 2rem 0;
+}
+.srt-checklist-item.srt-task-status{
 	padding-bottom: 1rem;
-	border-bottom: 1px solid #eee;
+    margin: 0;
+    border: none;
 }
 
 .srt-checklist-item fieldset {
@@ -150,7 +158,7 @@
    wp-admin "button" stylesheet loaded here, so these get their own look. */
 .srt-refresh-link {
 	display: inline-block;
-	margin: 0.4rem 0 0.9rem;
+	margin: 0.4rem 0 0;
 	padding: 0.4rem 0.9rem;
 	border: 1px solid #ad9661;
 	border-radius: 4px;
@@ -221,13 +229,6 @@
 }
 
 /* ── Scan results ── */
-
-.srt-scan-wrapper {
-	margin-bottom: 2rem;
-	padding-bottom: 1.5rem;
-	border-bottom: 2px solid #eee;
-}
-
 .srt-scan-meta {
 	margin: 0 0 1rem;
 	font-size: 0.85rem;
