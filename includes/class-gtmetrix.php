@@ -251,9 +251,14 @@ class SRT_GTmetrix {
 		$page    = isset( $results['pages'][ $page_index ] ) ? $results['pages'][ $page_index ] : array();
 
 		// Only promote to "previous" if there was a genuinely completed prior
-		// run on this page — not a stale pending/error state left over from a
-		// failed test.
-		if ( ! empty( $page['current'] ) && isset( $page['status'] ) && 'ready' === $page['status'] ) {
+		// run on this page. 'current' is set exclusively by a successful report
+		// applying here — never by the pending/error paths — so its presence
+		// alone proves a real prior run happened. (Checking $page['status'] ===
+		// 'ready' here instead, as this used to, is a bug: start_page_test()
+		// already overwrote status to 'pending' for *this* run before this
+		// runs, so that check could never be true and 'previous' would never
+		// get populated past the first run.)
+		if ( ! empty( $page['current'] ) ) {
 			$page['previous'] = $page['current'];
 		}
 
