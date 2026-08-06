@@ -47,12 +47,92 @@ function srt_get_task_tag( $task_id ) {
 }
 
 /**
- * Splits a "one per line" textarea value into a clean array of choices.
+ * Checklist storage — a plain post meta array, not an ACF field. Each row is
+ * a plain associative array: { section, label, answer }. Used for both a
+ * Company's template checklist and a Task's own per-review snapshot.
+ *
+ * This deliberately bypasses ACF's repeater field type. ACF's repeater
+ * stores each row's cells as their own separate wp_postmeta rows (e.g. a
+ * 5-row, 5-column repeater is dozens of individual database writes per
+ * save) — that many-small-writes shape was the root cause of a real,
+ * observed bug where a single cell's value silently failed to persist while
+ * the rest of the row saved fine. Storing the whole checklist as one PHP
+ * array under one meta key makes a save a single atomic database write,
+ * which removes that entire failure mode. See instructions.md.
  */
-function srt_lines_to_array( $text ) {
-	$lines = preg_split( '/\r\n|\r|\n/', (string) $text );
-	return array_values( array_filter( array_map( 'trim', $lines ), 'strlen' ) );
+function srt_get_checklist( $post_id ) {
+	$rows = get_post_meta( $post_id, 'srt_checklist', true );
+	return is_array( $rows ) ? array_values( $rows ) : array();
 }
+
+/**
+ * Saves a post's checklist. Every row is normalized to exactly { section,
+ * label, answer } so nothing downstream ever has to guess at the shape or
+ * defend against a missing key.
+ */
+function srt_update_checklist( $post_id, $rows ) {
+	$clean = array();
+
+	foreach ( (array) $rows as $row ) {
+		$clean[] = array(
+			'section' => isset( $row['section'] ) ? (string) $row['section'] : '',
+			'label'   => isset( $row['label'] ) ? (string) $row['label'] : '',
+			'answer'  => isset( $row['answer'] ) ? (string) $row['answer'] : '',
+		);
+	}
+
+	update_post_meta( $post_id, 'srt_checklist', $clean );
+}
+
+/**
+ * One-time migration from the old ACF repeater 'checklist' field to the
+ * plain `srt_checklist` meta key above. Reads the OLD data directly via
+ * get_post_meta() (the repeater's actual on-disk shape: a `checklist` count
+ * plus `checklist_{i}_{subfield}` cells) rather than get_field(), since this
+ * must work regardless of whether the old ACF field definition is still
+ * registered. `field_type`/`choices` are intentionally dropped — the
+ * checklist is Section + Label + Answer only now — but every row's Section,
+ * Label, and Answer (including old radio/checkbox answers, kept as plain
+ * text) are preserved so no historical data is lost. Runs once per post
+ * (skipped if that post already has the new key) and once overall, guarded
+ * by the `srt_checklist_migrated` option.
+ */
+function srt_migrate_checklist_data() {
+	if ( get_option( 'srt_checklist_migrated' ) ) {
+		return;
+	}
+
+	$post_ids = get_posts(
+		array(
+			'post_type'      => array( 'rwsrt_company', 'rwsrt_task' ),
+			'posts_per_page' => -1,
+			'post_status'    => 'any',
+			'fields'         => 'ids',
+		)
+	);
+
+	foreach ( $post_ids as $post_id ) {
+		if ( metadata_exists( 'post', $post_id, 'srt_checklist' ) ) {
+			continue;
+		}
+
+		$count = (int) get_post_meta( $post_id, 'checklist', true );
+		$rows  = array();
+
+		for ( $i = 0; $i < $count; $i++ ) {
+			$rows[] = array(
+				'section' => (string) get_post_meta( $post_id, "checklist_{$i}_section", true ),
+				'label'   => (string) get_post_meta( $post_id, "checklist_{$i}_label", true ),
+				'answer'  => (string) get_post_meta( $post_id, "checklist_{$i}_answer", true ),
+			);
+		}
+
+		srt_update_checklist( $post_id, $rows );
+	}
+
+	update_option( 'srt_checklist_migrated', 1 );
+}
+add_action( 'admin_init', 'srt_migrate_checklist_data' );
 
 /**
  * Capability map shared by all three post types, pinning every primitive
@@ -287,107 +367,28 @@ function srt_default_executive_summary() {
 
 /**
  * Default checklist rows seeded onto a company the first time it's saved with
- * an empty checklist (see SRT_CPT_Company::seed_default_checklist()). Mirrors
+ * no checklist stored at all (see SRT_CPT_Company::save_checklist()). Mirrors
  * the standard sections every review covers; edit or add to per company —
  * this only supplies the starting point.
  *
- * Security Overview's four items also carry data pulled from the Kinsta API
- * once that's configured (see class-kinsta.php) — the checkbox stays the
- * maker's manual confirmation, informed by the fetched value shown alongside
- * it, rather than being replaced by it.
- *
- * @return array Rows in the same shape as the `checklist` repeater field.
+ * Every item is a plain Section + Label + free-text Answer. Security
+ * Overview / Page Load Speed / Backups status used to be separate
+ * radio-choice items here, auto-filled from Kinsta/GTmetrix — that data now
+ * shows on its own in the independent "Kinsta Data" / "Page Load Speed
+ * (GTmetrix)" sections regardless of the checklist (see class-kinsta.php /
+ * class-gtmetrix.php), so each of those three sections keeps only a
+ * free-text Summary item here for the maker's own notes.
  */
 function srt_default_checklist_items() {
-	// Note: the status items below use 'radio' (pick exactly one), not
-	// 'checkbox' (pick any) — "Up to date" and "Needs attention" are mutually
-	// exclusive states, and radio is what SRT_Kinsta::apply_security_to_checklist()
-	// expects to auto-fill.
 	return array(
-		array(
-			'section'    => 'Security Overview',
-			'field_type' => 'radio',
-			'label'      => 'Plugins',
-			'choices'    => "Up to date\nNeeds attention",
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Security Overview',
-			'field_type' => 'radio',
-			'label'      => 'Theme',
-			'choices'    => "Up to date\nNeeds attention",
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Security Overview',
-			'field_type' => 'radio',
-			'label'      => 'Core',
-			'choices'    => "Up to date\nNeeds attention",
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Security Overview',
-			'field_type' => 'radio',
-			'label'      => 'PHP Version',
-			'choices'    => "Up to date\nNeeds attention",
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Security Overview',
-			'field_type' => 'textarea',
-			'label'      => 'Security Overview Summary',
-			'choices'    => '',
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Content and User Experience',
-			'field_type' => 'textarea',
-			'label'      => 'Content Check',
-			'choices'    => '',
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Content and User Experience',
-			'field_type' => 'textarea',
-			'label'      => 'Mobile Responsiveness',
-			'choices'    => '',
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Content and User Experience',
-			'field_type' => 'textarea',
-			'label'      => 'Form Functionality',
-			'choices'    => '',
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Content and User Experience',
-			'field_type' => 'textarea',
-			'label'      => 'Cart & Checkout Functionality',
-			'choices'    => '',
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Content and User Experience',
-			'field_type' => 'textarea',
-			'label'      => 'Content and User Experience Summary',
-			'choices'    => '',
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Performance and Speed Optimization',
-			'field_type' => 'radio',
-			'label'      => 'Page Load Speed',
-			'choices'    => "Good\nNeeds attention",
-			'answer'     => '',
-		),
-		array(
-			'section'    => 'Backups',
-			'field_type' => 'radio',
-			'label'      => 'Backup Verification',
-			'choices'    => "Verified\nNeeds attention",
-			'answer'     => '',
-		),
+		array( 'section' => 'Security Overview', 'label' => 'Security Overview Summary', 'answer' => '' ),
+		array( 'section' => 'Content and User Experience', 'label' => 'Content Check', 'answer' => '' ),
+		array( 'section' => 'Content and User Experience', 'label' => 'Mobile Responsiveness', 'answer' => '' ),
+		array( 'section' => 'Content and User Experience', 'label' => 'Form Functionality', 'answer' => '' ),
+		array( 'section' => 'Content and User Experience', 'label' => 'Cart & Checkout Functionality', 'answer' => '' ),
+		array( 'section' => 'Content and User Experience', 'label' => 'Content and User Experience Summary', 'answer' => '' ),
+		array( 'section' => 'Performance and Speed Optimization', 'label' => 'Performance and Speed Optimization Summary', 'answer' => '' ),
+		array( 'section' => 'Backups', 'label' => 'Backups Summary', 'answer' => '' ),
 	);
 }
 
@@ -589,68 +590,6 @@ function srt_register_acf_fields() {
 					'instructions'  => 'Inactive companies are skipped by the daily task-creation check.',
 				),
 				array(
-					'key'          => 'field_srt_company_checklist',
-					'label'        => 'Checklist Items',
-					'name'         => 'checklist',
-					'type'         => 'repeater',
-					'layout'       => 'table',
-					'button_label' => 'Add Item',
-					'instructions' => 'Copied onto each new review task when it is created. Editing this after tasks exist only affects future tasks — each task keeps its own snapshot, so past reports don\'t change retroactively.',
-					'sub_fields'   => array(
-						array(
-							'key'          => 'field_srt_company_checklist_item_section',
-							'label'        => 'Section',
-							'name'         => 'section',
-							'type'         => 'text',
-							'instructions' => 'Items sharing a Section are grouped under one heading on the report (e.g. "Security Overview"). Leave blank for no heading.',
-						),
-						array(
-							'key'           => 'field_srt_company_checklist_item_type',
-							'label'         => 'Type',
-							'name'          => 'field_type',
-							'type'          => 'select',
-							'choices'       => array(
-								'radio'    => 'Radio (custom choices, pick one)',
-								'checkbox' => 'Checkbox (custom choices, pick any)',
-								'textarea' => 'Textarea (free text)',
-								'gallery'  => 'Gallery (image uploads)',
-							),
-							'default_value' => 'checkbox',
-							'allow_null'    => 0,
-						),
-						array(
-							'key'   => 'field_srt_company_checklist_item_label',
-							'label' => 'Label',
-							'name'  => 'label',
-							'type'  => 'text',
-						),
-						array(
-							'key'               => 'field_srt_company_checklist_item_choices',
-							'label'             => 'Choices',
-							'name'              => 'choices',
-							'type'              => 'textarea',
-							'rows'              => 3,
-							'instructions'      => 'One choice per line.',
-							'conditional_logic' => array(
-								array(
-									array(
-										'field'    => 'field_srt_company_checklist_item_type',
-										'operator' => '==',
-										'value'    => 'radio',
-									),
-								),
-								array(
-									array(
-										'field'    => 'field_srt_company_checklist_item_type',
-										'operator' => '==',
-										'value'    => 'checkbox',
-									),
-								),
-							),
-						),
-					),
-				),
-				array(
 					'key'           => 'field_srt_company_interval',
 					'label'         => 'Review Interval',
 					'name'          => 'interval',
@@ -811,54 +750,6 @@ function srt_register_acf_fields() {
 					'rows'          => 4,
 					'default_value' => srt_default_executive_summary(),
 					'instructions'  => 'Shown at the top of the report. Prefilled with a standard summary; edit per client as needed.',
-				),
-				array(
-					'key'          => 'field_srt_task_checklist',
-					'label'        => 'Checklist',
-					'name'         => 'checklist',
-					'type'         => 'repeater',
-					'layout'       => 'table',
-					'button_label' => 'Add Item',
-					'instructions' => 'Snapshotted from the company\'s checklist when this task was created. Only Answer is meant to be edited here — avoid changing Section/Type/Label/Choices, which are shown for reference.',
-					'sub_fields'   => array(
-						array(
-							'key'      => 'field_srt_task_checklist_section',
-							'label'    => 'Section',
-							'name'     => 'section',
-							'type'     => 'text',
-						),
-						array(
-							'key'           => 'field_srt_task_checklist_type',
-							'label'         => 'Type',
-							'name'          => 'field_type',
-							'type'          => 'select',
-							'choices'       => array(
-								'radio'    => 'Radio',
-								'checkbox' => 'Checkbox',
-								'textarea' => 'Textarea',
-								'gallery'  => 'Gallery',
-							),
-						),
-						array(
-							'key'      => 'field_srt_task_checklist_label',
-							'label'    => 'Label',
-							'name'     => 'label',
-							'type'     => 'text',
-						),
-						array(
-							'key'      => 'field_srt_task_checklist_choices',
-							'label'    => 'Choices',
-							'name'     => 'choices',
-							'type'     => 'textarea',
-							'rows'     => 2,
-						),
-						array(
-							'key'   => 'field_srt_task_checklist_answer',
-							'label' => 'Answer',
-							'name'  => 'answer',
-							'type'  => 'text',
-						),
-					),
 				),
 				array(
 					'key'          => 'field_srt_task_kinsta_security_notes',

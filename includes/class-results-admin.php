@@ -113,7 +113,7 @@ class SRT_Results_Admin {
 				'task_id'          => $post->ID,
 				'company_id'       => $company_id,
 				'company_name'     => $company_id ? get_the_title( $company_id ) : '',
-				'period'           => get_field( 'period', $post->ID ),
+				'period'           => (string) get_field( 'period', $post->ID ),
 				'status_slug'      => $tag_slug,
 				'status_label'     => srt_get_task_tag_label( $tag_slug ),
 				'maker_name'       => self::user_name( (int) get_field( 'maker', $post->ID ) ),
@@ -183,8 +183,10 @@ class SRT_Results_Admin {
 	/**
 	 * GTmetrix Page Load Speed as a fixed 6-slot array (Page1..Page6: homepage
 	 * plus up to 5 Additional Pages to Scan). A slot is null when the company
-	 * has no page configured there; otherwise it's the performance score (or
-	 * Pending/Error/— while a configured page hasn't completed a run yet).
+	 * has no page configured there; otherwise it's { score, url } — `score` is
+	 * the performance score (or Pending/Error/— while a configured page hasn't
+	 * completed a run yet), `url` is the page's full URL (empty until a test
+	 * has actually started for that slot, same lifecycle as `score`).
 	 */
 	private static function gtmetrix_pages( $task_id ) {
 		$results = SRT_GTmetrix::get_results( $task_id );
@@ -200,19 +202,49 @@ class SRT_Results_Admin {
 			$status = isset( $page['status'] ) ? $page['status'] : '';
 
 			if ( 'ready' === $status && isset( $page['current']['performance'] ) && null !== $page['current']['performance'] ) {
-				$value = $page['current']['performance'] . '/100';
+				$score = $page['current']['performance'] . '/100';
 			} elseif ( 'pending' === $status ) {
-				$value = __( 'Pending', 'rw-site-review-tasks' );
+				$score = __( 'Pending', 'rw-site-review-tasks' );
 			} elseif ( 'error' === $status ) {
-				$value = __( 'Error', 'rw-site-review-tasks' );
+				$score = __( 'Error', 'rw-site-review-tasks' );
 			} else {
-				$value = '—'; // Page is configured but hasn't completed a run yet.
+				$score = '—'; // Page is configured but hasn't completed a run yet.
 			}
 
-			$slots[ $index ] = $value;
+			$slots[ $index ] = array(
+				'score' => $score,
+				'url'   => isset( $page['url'] ) ? $page['url'] : '',
+			);
 		}
 
 		return $slots;
+	}
+
+	/**
+	 * The path portion of a page URL for display next to its score (e.g.
+	 * "/about" for https://example.com/about, "/" for the bare homepage).
+	 */
+	private static function page_slug( $url ) {
+		$path = wp_parse_url( $url, PHP_URL_PATH );
+		return $path ? $path : '/';
+	}
+
+	/**
+	 * Toggleable column groups shown as checkboxes above the table: key => label.
+	 * Company/Period/Status/Task stay permanently visible as the identifying
+	 * columns. All 12 Page Load Speed columns (score + URL for Page1..Page6)
+	 * share the single 'pages' key, so one checkbox shows/hides every page at
+	 * once rather than needing 12 separate toggles.
+	 */
+	private static function column_groups() {
+		return array(
+			'maker'    => __( 'Maker', 'rw-site-review-tasks' ),
+			'mg'       => __( 'Marketing Guide', 'rw-site-review-tasks' ),
+			'created'  => __( 'Created', 'rw-site-review-tasks' ),
+			'security' => __( 'Security Overview', 'rw-site-review-tasks' ),
+			'backup'   => __( 'Last Backup', 'rw-site-review-tasks' ),
+			'pages'    => __( 'Page Load Speed', 'rw-site-review-tasks' ),
+		);
 	}
 
 	public static function render_page() {
@@ -267,6 +299,22 @@ class SRT_Results_Admin {
 				.srt-results-badge-needs_work { background: #fff3cd; color: #8a6500; }
 				.srt-results-status-ok { color: #1e7e34; white-space: nowrap; }
 				.srt-results-status-attention { color: #a71d2a; font-weight: 600; white-space: nowrap; }
+				.srt-column-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin: 1rem 0; }
+				.srt-column-toggles label { font-weight: 400; white-space: nowrap; }
+				.srt-results-table.srt-hide-maker th[data-col="maker"],
+				.srt-results-table.srt-hide-maker td[data-col="maker"],
+				.srt-results-table.srt-hide-mg th[data-col="mg"],
+				.srt-results-table.srt-hide-mg td[data-col="mg"],
+				.srt-results-table.srt-hide-created th[data-col="created"],
+				.srt-results-table.srt-hide-created td[data-col="created"],
+				.srt-results-table.srt-hide-security th[data-col="security"],
+				.srt-results-table.srt-hide-security td[data-col="security"],
+				.srt-results-table.srt-hide-backup th[data-col="backup"],
+				.srt-results-table.srt-hide-backup td[data-col="backup"],
+				.srt-results-table.srt-hide-pages th[data-col="pages"],
+				.srt-results-table.srt-hide-pages td[data-col="pages"] {
+					display: none;
+				}
 			</style>
 
 			<form method="get">
@@ -314,29 +362,37 @@ class SRT_Results_Admin {
 				</p>
 			</form>
 
-			<table class="widefat striped">
+			<p class="srt-column-toggles">
+				<strong><?php esc_html_e( 'Columns:', 'rw-site-review-tasks' ); ?></strong>
+				<?php foreach ( self::column_groups() as $key => $label ) : ?>
+					<label><input type="checkbox" class="srt-col-toggle" data-col="<?php echo esc_attr( $key ); ?>" checked="checked" /> <?php echo esc_html( $label ); ?></label>
+				<?php endforeach; ?>
+			</p>
+
+			<table class="widefat striped srt-results-table">
 				<thead>
 					<tr>
 						<th><?php esc_html_e( 'Company', 'rw-site-review-tasks' ); ?></th>
 						<th><?php esc_html_e( 'Period', 'rw-site-review-tasks' ); ?></th>
 						<th><?php esc_html_e( 'Status', 'rw-site-review-tasks' ); ?></th>
-						<th><?php esc_html_e( 'Maker', 'rw-site-review-tasks' ); ?></th>
-						<th><?php esc_html_e( 'Marketing Guide', 'rw-site-review-tasks' ); ?></th>
-						<th><?php esc_html_e( 'Created', 'rw-site-review-tasks' ); ?></th>
-						<th><?php esc_html_e( 'Core', 'rw-site-review-tasks' ); ?></th>
-						<th><?php esc_html_e( 'Plugins', 'rw-site-review-tasks' ); ?></th>
-						<th><?php esc_html_e( 'Theme', 'rw-site-review-tasks' ); ?></th>
-						<th><?php esc_html_e( 'PHP', 'rw-site-review-tasks' ); ?></th>
-						<th><?php esc_html_e( 'Last Backup', 'rw-site-review-tasks' ); ?></th>
+						<th data-col="maker"><?php esc_html_e( 'Maker', 'rw-site-review-tasks' ); ?></th>
+						<th data-col="mg"><?php esc_html_e( 'Marketing Guide', 'rw-site-review-tasks' ); ?></th>
+						<th data-col="created"><?php esc_html_e( 'Created', 'rw-site-review-tasks' ); ?></th>
+						<th data-col="security"><?php esc_html_e( 'Core', 'rw-site-review-tasks' ); ?></th>
+						<th data-col="security"><?php esc_html_e( 'Plugins', 'rw-site-review-tasks' ); ?></th>
+						<th data-col="security"><?php esc_html_e( 'Theme', 'rw-site-review-tasks' ); ?></th>
+						<th data-col="security"><?php esc_html_e( 'PHP', 'rw-site-review-tasks' ); ?></th>
+						<th data-col="backup"><?php esc_html_e( 'Last Backup', 'rw-site-review-tasks' ); ?></th>
 						<?php for ( $i = 1; $i <= self::GTMETRIX_MAX_PAGES; $i++ ) : ?>
-							<th><?php echo esc_html( sprintf( 'Page%d', $i ) ); ?></th>
+							<th data-col="pages"><?php echo esc_html( sprintf( 'Page%d', $i ) ); ?></th>
+							<th data-col="pages"><?php echo esc_html( sprintf( 'Page%d URL', $i ) ); ?></th>
 						<?php endfor; ?>
 						<th><?php esc_html_e( 'Task', 'rw-site-review-tasks' ); ?></th>
 					</tr>
 				</thead>
 				<tbody>
 					<?php if ( empty( $rows ) ) : ?>
-						<tr><td colspan="<?php echo esc_attr( 7 + 4 + 1 + self::GTMETRIX_MAX_PAGES + 1 ); ?>"><?php esc_html_e( 'No tasks match these filters.', 'rw-site-review-tasks' ); ?></td></tr>
+						<tr><td colspan="<?php echo esc_attr( 6 + 4 + 1 + ( self::GTMETRIX_MAX_PAGES * 2 ) + 1 ); ?>"><?php esc_html_e( 'No tasks match these filters.', 'rw-site-review-tasks' ); ?></td></tr>
 					<?php else : ?>
 						<?php foreach ( $rows as $row ) : ?>
 							<tr>
@@ -356,11 +412,11 @@ class SRT_Results_Admin {
 									<span class="srt-results-badge srt-results-badge-<?php echo esc_attr( $row['status_slug'] ); ?>"><?php echo esc_html( $row['status_label'] ); ?></span>
 								<?php endif; ?>
 							</td>
-								<td><?php echo esc_html( $row['maker_name'] ); ?></td>
-								<td><?php echo esc_html( $row['mg_name'] ); ?></td>
-								<td><?php echo esc_html( $row['created'] ); ?></td>
+								<td data-col="maker"><?php echo esc_html( $row['maker_name'] ); ?></td>
+								<td data-col="mg"><?php echo esc_html( $row['mg_name'] ); ?></td>
+								<td data-col="created"><?php echo esc_html( $row['created'] ); ?></td>
 								<?php foreach ( array( 'security_core', 'security_plugins', 'security_theme', 'security_php' ) as $field ) : ?>
-									<td>
+									<td data-col="security">
 										<?php if ( null === $row[ $field ] ) : ?>
 											&#8212;
 										<?php else : ?>
@@ -368,9 +424,16 @@ class SRT_Results_Admin {
 										<?php endif; ?>
 									</td>
 								<?php endforeach; ?>
-								<td><?php echo $row['last_backup'] ? esc_html( $row['last_backup'] ) : '&#8212;'; ?></td>
-								<?php foreach ( $row['gtmetrix_pages'] as $value ) : ?>
-									<td><?php echo null === $value ? '' : esc_html( $value ); ?></td>
+								<td data-col="backup"><?php echo $row['last_backup'] ? esc_html( $row['last_backup'] ) : '&#8212;'; ?></td>
+								<?php foreach ( $row['gtmetrix_pages'] as $page ) : ?>
+									<td data-col="pages"><?php echo null === $page ? '' : esc_html( $page['score'] ); ?></td>
+									<td data-col="pages">
+										<?php if ( null !== $page && '' !== $page['url'] ) : ?>
+											<a href="<?php echo esc_url( $page['url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( self::page_slug( $page['url'] ) ); ?></a>
+										<?php elseif ( null !== $page ) : ?>
+											&#8212;
+										<?php endif; ?>
+									</td>
 								<?php endforeach; ?>
 								<td><a href="<?php echo esc_url( get_edit_post_link( $row['task_id'] ) ); ?>">#<?php echo esc_html( $row['task_id'] ); ?></a></td>
 							</tr>
@@ -378,6 +441,56 @@ class SRT_Results_Admin {
 					<?php endif; ?>
 				</tbody>
 			</table>
+
+			<script>
+			( function () {
+				var STORAGE_KEY = 'srt_results_hidden_columns';
+				var table       = document.querySelector( '.srt-results-table' );
+				var checkboxes  = document.querySelectorAll( '.srt-col-toggle' );
+
+				if ( ! table || ! checkboxes.length ) {
+					return;
+				}
+
+				var hidden = [];
+				try {
+					hidden = JSON.parse( localStorage.getItem( STORAGE_KEY ) || '[]' );
+				} catch ( e ) {
+					hidden = [];
+				}
+
+				function setStored( col, isHidden ) {
+					var stored = [];
+					try {
+						stored = JSON.parse( localStorage.getItem( STORAGE_KEY ) || '[]' );
+					} catch ( e ) {
+						stored = [];
+					}
+					var idx = stored.indexOf( col );
+					if ( isHidden ) {
+						if ( -1 === idx ) {
+							stored.push( col );
+						}
+					} else if ( -1 !== idx ) {
+						stored.splice( idx, 1 );
+					}
+					localStorage.setItem( STORAGE_KEY, JSON.stringify( stored ) );
+				}
+
+				Array.prototype.forEach.call( checkboxes, function ( cb ) {
+					var col      = cb.getAttribute( 'data-col' );
+					var isHidden = -1 !== hidden.indexOf( col );
+
+					cb.checked = ! isHidden;
+					table.classList.toggle( 'srt-hide-' + col, isHidden );
+
+					cb.addEventListener( 'change', function () {
+						table.classList.toggle( 'srt-hide-' + col, ! cb.checked );
+						setStored( col, ! cb.checked );
+					} );
+				} );
+			}() );
+			</script>
 			<p class="description">
 				<?php
 				printf(
@@ -408,6 +521,7 @@ class SRT_Results_Admin {
 		$headers = array( 'Task ID', 'Company', 'Period', 'Status', 'Maker', 'Marketing Guide', 'Created', 'Core', 'Plugins', 'Theme', 'PHP', 'Last Backup' );
 		for ( $i = 1; $i <= self::GTMETRIX_MAX_PAGES; $i++ ) {
 			$headers[] = sprintf( 'Page%d', $i );
+			$headers[] = sprintf( 'Page%d URL', $i );
 		}
 		$headers[] = 'Task Edit URL';
 
@@ -430,8 +544,9 @@ class SRT_Results_Admin {
 				$row['last_backup'],
 			);
 
-			foreach ( $row['gtmetrix_pages'] as $value ) {
-				$line[] = null === $value ? '' : $value;
+			foreach ( $row['gtmetrix_pages'] as $page ) {
+				$line[] = null === $page ? '' : $page['score'];
+				$line[] = null === $page ? '' : $page['url'];
 			}
 
 			$line[] = get_edit_post_link( $row['task_id'], 'raw' );

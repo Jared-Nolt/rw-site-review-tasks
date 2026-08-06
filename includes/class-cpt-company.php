@@ -13,31 +13,135 @@ class SRT_CPT_Company {
 		add_filter( 'manage_' . self::POST_TYPE . '_posts_columns', array( __CLASS__, 'columns' ) );
 		add_action( 'manage_' . self::POST_TYPE . '_posts_custom_column', array( __CLASS__, 'render_column' ), 10, 2 );
 		add_action( 'add_meta_boxes', array( __CLASS__, 'add_tasks_meta_box' ) );
+		add_action( 'add_meta_boxes', array( __CLASS__, 'add_checklist_meta_box' ) );
 		add_action( 'admin_post_srt_run_company', array( __CLASS__, 'handle_run_company' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'run_company_notice' ) );
 		add_action( 'acf/save_post', array( __CLASS__, 'snap_due_date_to_rule' ), 20 );
-		add_action( 'acf/save_post', array( __CLASS__, 'seed_default_checklist' ), 20 );
+		add_action( 'save_post_' . self::POST_TYPE, array( __CLASS__, 'save_checklist' ), 20 );
 	}
 
 	/**
-	 * Seeds the default checklist sections the first time a company is saved
-	 * with an empty checklist — new companies (and any existing company whose
-	 * checklist was cleared out) start from the standard Security Overview /
-	 * Content and User Experience sections instead of a blank repeater. Once
-	 * the field holds anything, this is a no-op.
+	 * Checklist Items meta box — Section + Label rows, add/remove in the
+	 * browser via plain JS. Not an ACF field: see srt_get_checklist() /
+	 * srt_update_checklist() in class-acf-fields.php for why.
 	 */
-	public static function seed_default_checklist( $post_id ) {
+	public static function add_checklist_meta_box() {
+		add_meta_box(
+			'srt_company_checklist',
+			__( 'Checklist Items', 'rw-site-review-tasks' ),
+			array( __CLASS__, 'render_checklist_meta_box' ),
+			self::POST_TYPE,
+			'normal',
+			'high'
+		);
+	}
+
+	public static function render_checklist_meta_box( $post ) {
+		$rows = srt_get_checklist( $post->ID );
+
+		// A brand-new company (nothing saved yet) starts from the standard
+		// sections, shown here — not written to the database — so the very
+		// first Update already submits them through the normal save path.
+		if ( ! $rows && ! metadata_exists( 'post', $post->ID, 'srt_checklist' ) ) {
+			$rows = srt_default_checklist_items();
+		}
+
+		wp_nonce_field( 'srt_save_company_checklist', 'srt_company_checklist_nonce' );
+		?>
+		<p class="description"><?php esc_html_e( 'Copied onto each new review task when it is created. Editing this after tasks exist only affects future tasks — each task keeps its own snapshot, so past reports don\'t change retroactively.', 'rw-site-review-tasks' ); ?></p>
+		<table class="widefat striped" id="srt-company-checklist-table">
+			<thead>
+				<tr>
+					<th><?php esc_html_e( 'Section', 'rw-site-review-tasks' ); ?></th>
+					<th><?php esc_html_e( 'Label', 'rw-site-review-tasks' ); ?></th>
+					<th style="width:40px;"></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $rows as $i => $row ) : ?>
+					<tr>
+						<td><input type="text" name="srt_checklist[<?php echo esc_attr( $i ); ?>][section]" value="<?php echo esc_attr( $row['section'] ); ?>" class="widefat" /></td>
+						<td><input type="text" name="srt_checklist[<?php echo esc_attr( $i ); ?>][label]" value="<?php echo esc_attr( $row['label'] ); ?>" class="widefat" /></td>
+						<td><button type="button" class="button srt-remove-checklist-row">&times;</button></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<p><button type="button" class="button" id="srt-add-checklist-row"><?php esc_html_e( 'Add Item', 'rw-site-review-tasks' ); ?></button></p>
+		<script>
+		( function () {
+			var table = document.getElementById( 'srt-company-checklist-table' );
+			var addButton = document.getElementById( 'srt-add-checklist-row' );
+
+			if ( ! table || ! addButton ) {
+				return;
+			}
+
+			var tbody   = table.querySelector( 'tbody' );
+			var counter = tbody.querySelectorAll( 'tr' ).length;
+
+			addButton.addEventListener( 'click', function () {
+				var row = document.createElement( 'tr' );
+				row.innerHTML =
+					'<td><input type="text" name="srt_checklist[' + counter + '][section]" class="widefat" /></td>' +
+					'<td><input type="text" name="srt_checklist[' + counter + '][label]" class="widefat" /></td>' +
+					'<td><button type="button" class="button srt-remove-checklist-row">&times;</button></td>';
+				tbody.appendChild( row );
+				counter++;
+			} );
+
+			table.addEventListener( 'click', function ( e ) {
+				if ( e.target && e.target.classList.contains( 'srt-remove-checklist-row' ) ) {
+					e.target.closest( 'tr' ).remove();
+				}
+			} );
+		}() );
+		</script>
+		<?php
+	}
+
+	/**
+	 * Saves the Checklist Items meta box, then falls back to the standard
+	 * sections if this post still has no checklist stored at all afterward —
+	 * covers both a brand-new company (this meta box's own render already
+	 * pre-fills the default rows, but a save from outside wp-admin, e.g. the
+	 * CSV importer, never submits them) and an existing company whose
+	 * checklist was cleared out entirely.
+	 */
+	public static function save_checklist( $post_id ) {
 		if ( self::POST_TYPE !== get_post_type( $post_id ) ) {
 			return;
 		}
 
-		$existing = get_field( 'checklist', $post_id );
-
-		if ( ! empty( $existing ) ) {
+		if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) {
 			return;
 		}
 
-		update_field( 'checklist', srt_default_checklist_items(), $post_id );
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return;
+		}
+
+		if ( isset( $_POST['srt_company_checklist_nonce'] ) && wp_verify_nonce( wp_unslash( $_POST['srt_company_checklist_nonce'] ), 'srt_save_company_checklist' ) ) {
+			$posted = isset( $_POST['srt_checklist'] ) ? (array) wp_unslash( $_POST['srt_checklist'] ) : array();
+			$rows   = array();
+
+			foreach ( $posted as $row ) {
+				$section = isset( $row['section'] ) ? sanitize_text_field( $row['section'] ) : '';
+				$label   = isset( $row['label'] ) ? sanitize_text_field( $row['label'] ) : '';
+
+				if ( '' === $section && '' === $label ) {
+					continue; // An "Add Item" row left untouched — nothing worth keeping.
+				}
+
+				$rows[] = array( 'section' => $section, 'label' => $label, 'answer' => '' );
+			}
+
+			srt_update_checklist( $post_id, $rows );
+		}
+
+		if ( ! metadata_exists( 'post', $post_id, 'srt_checklist' ) ) {
+			srt_update_checklist( $post_id, srt_default_checklist_items() );
+		}
 	}
 
 	/**
@@ -119,7 +223,7 @@ class SRT_CPT_Company {
 		}
 
 		if ( 'srt_checklist' === $column ) {
-			$items = get_field( 'checklist', $post_id );
+			$items = srt_get_checklist( $post_id );
 			$count = is_array( $items ) ? count( $items ) : 0;
 			echo $count
 				/* translators: %d: number of checklist items */
@@ -221,7 +325,7 @@ class SRT_CPT_Company {
 				<?php foreach ( $tasks as $task ) : ?>
 					<?php $log_entry = isset( $log_map[ $task->ID ] ) ? $log_map[ $task->ID ] : null; ?>
 					<tr>
-						<td><?php echo esc_html( get_field( 'period', $task->ID ) ); ?></td>
+						<td><?php echo esc_html( (string) get_field( 'period', $task->ID ) ); ?></td>
 						<td><?php echo esc_html( srt_get_task_tag( $task->ID ) ); ?></td>
 						<td>
 							<?php if ( $log_entry ) : ?>

@@ -62,10 +62,10 @@ class SRT_Task_Print {
 
 	private static function render( $task_id, $is_mg ) {
 		$company_id = get_field( 'company', $task_id );
-		$period     = get_field( 'period', $task_id );
-		$summary    = get_field( 'executive_summary', $task_id );
-		$rows       = get_field( 'checklist', $task_id );
-		$notes      = get_field( 'extra_notes', $task_id );
+		$period     = (string) get_field( 'period', $task_id );
+		$summary    = (string) get_field( 'executive_summary', $task_id );
+		$rows       = srt_get_checklist( $task_id );
+		$notes      = (string) get_field( 'extra_notes', $task_id );
 		$scan       = $is_mg ? get_post_meta( $task_id, SRT_Site_Scanner::META_KEY, true ) : false;
 		$tag        = srt_get_task_tag( $task_id );
 		$logo_url   = SRT_PLUGIN_URL . 'assets/rosewood-logo.png';
@@ -512,7 +512,7 @@ class SRT_Task_Print {
 		ob_start();
 		?>
 		<div class="rw-section">
-			<h2 class="rw-heading"><?php esc_html_e( 'Kinsta Data', 'rw-site-review-tasks' ); ?></h2>
+			<h2 class="rw-heading"><?php esc_html_e( 'Server Data', 'rw-site-review-tasks' ); ?></h2>
 
 			<?php if ( $has_security ) : ?>
 				<h3 class="rw-subheading"><?php esc_html_e( 'Security Overview', 'rw-site-review-tasks' ); ?></h3>
@@ -557,7 +557,7 @@ class SRT_Task_Print {
 		ob_start();
 		?>
 		<div class="rw-section">
-			<h2 class="rw-heading"><?php esc_html_e( 'Page Load Speed (GTmetrix)', 'rw-site-review-tasks' ); ?></h2>
+			<h2 class="rw-heading"><?php esc_html_e( 'Page Load Speed', 'rw-site-review-tasks' ); ?></h2>
 			<?php echo $table; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 		</div>
 		<?php
@@ -605,49 +605,13 @@ class SRT_Task_Print {
 		// as an empty answer rather than throwing an undefined-key notice.
 		$answer = isset( $row['answer'] ) ? $row['answer'] : '';
 
-		switch ( $row['field_type'] ) {
-			case 'checkbox':
-				return (bool) srt_lines_to_array( $answer );
-
-			case 'textarea':
-				return '' !== trim( (string) $answer );
-
-			case 'gallery':
-				return (bool) array_filter( array_map( 'absint', explode( ',', (string) $answer ) ) );
-
-			default: // radio
-				return '' !== trim( (string) $answer );
-		}
+		return '' !== trim( (string) $answer );
 	}
 
 	private static function render_answer( $row ) {
 		$answer = isset( $row['answer'] ) ? $row['answer'] : '';
 
-		switch ( $row['field_type'] ) {
-			case 'checkbox':
-				$selected = srt_lines_to_array( $answer );
-				return $selected ? esc_html( implode( ', ', $selected ) ) : '&#8212;';
-
-			case 'textarea':
-				return '' !== $answer ? nl2br( esc_html( $answer ) ) : '&#8212;';
-
-			case 'gallery':
-				$ids = array_filter( array_map( 'absint', explode( ',', (string) $answer ) ) );
-
-				if ( ! $ids ) {
-					return '&#8212;';
-				}
-
-				$html = '<div class="rw-gallery">';
-				foreach ( $ids as $attachment_id ) {
-					$html .= wp_get_attachment_image( $attachment_id, 'medium' );
-				}
-				$html .= '</div>';
-				return $html;
-
-			default: // radio
-				return '' !== $row['answer'] ? esc_html( $row['answer'] ) : '&#8212;';
-		}
+		return '' !== $answer ? nl2br( esc_html( $answer ) ) : '&#8212;';
 	}
 }
 

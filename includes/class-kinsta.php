@@ -46,9 +46,6 @@ class SRT_Kinsta {
 	const PHP_REC_OPT  = 'srt_kinsta_recommended_php';
 	const API_BASE     = 'https://api.kinsta.com/v2';
 
-	/** Checklist item labels this integration auto-fills, matched case-insensitively. */
-	const MANAGED_LABELS = array( 'plugins', 'theme', 'core', 'php version' );
-
 	public static function init() {
 		add_action( self::CRON_HOOK, array( __CLASS__, 'run' ) );
 		add_action( 'add_meta_boxes', array( __CLASS__, 'add_meta_box' ) );
@@ -96,10 +93,6 @@ class SRT_Kinsta {
 		$results['security']   = $security;
 		$results['fetched_at'] = current_time( 'mysql' );
 		update_post_meta( $task_id, self::META_KEY, $results );
-
-		if ( ! isset( $security['error'] ) ) {
-			self::apply_security_to_checklist( $task_id, $security );
-		}
 
 		if ( $redirect ) {
 			srt_redirect_after_action( $task_id, 'srt_kinsta', 'security_refreshed' );
@@ -415,64 +408,6 @@ class SRT_Kinsta {
 		return array(
 			'last_backup' => $latest_ms ? wp_date( 'Y-m-d g:i A', (int) round( $latest_ms / 1000 ) ) : '',
 		);
-	}
-
-	// -------------------------------------------------------------------------
-	// Checklist auto-fill (Security Overview)
-	// -------------------------------------------------------------------------
-
-	/**
-	 * Sets the Security Overview checklist items' answers from fetched Kinsta
-	 * data — the checkbox stays the maker's manual confirmation, this just
-	 * pre-fills it from the fetched value so they're not looking it up by
-	 * hand. Only overwrites an item if the computed label ("Up to date" /
-	 * "Needs attention") is actually one of that item's configured choices,
-	 * so a company that customized the wording doesn't get a mismatched value
-	 * forced in.
-	 */
-	private static function apply_security_to_checklist( $task_id, $security ) {
-		$rows = get_field( 'checklist', $task_id );
-
-		if ( ! is_array( $rows ) ) {
-			return;
-		}
-
-		$map = array(
-			'plugins'     => isset( $security['plugins'] ) ? $security['plugins'] : null,
-			'theme'       => isset( $security['theme'] ) ? $security['theme'] : null,
-			'core'        => isset( $security['core'] ) ? $security['core'] : null,
-			'php version' => isset( $security['php'] ) ? $security['php'] : null,
-		);
-
-		$changed = false;
-
-		foreach ( $rows as &$row ) {
-			if ( 'radio' !== $row['field_type'] ) {
-				continue;
-			}
-
-			$label = strtolower( trim( (string) $row['label'] ) );
-
-			if ( ! isset( $map[ $label ] ) || ! $map[ $label ] || isset( $map[ $label ]['error'] ) ) {
-				continue;
-			}
-
-			$computed = 'attention' === $map[ $label ]['status']
-				? __( 'Needs attention', 'rw-site-review-tasks' )
-				: __( 'Up to date', 'rw-site-review-tasks' );
-
-			$choices = srt_lines_to_array( $row['choices'] );
-
-			if ( in_array( $computed, $choices, true ) ) {
-				$row['answer'] = $computed;
-				$changed       = true;
-			}
-		}
-		unset( $row );
-
-		if ( $changed ) {
-			update_field( 'checklist', $rows, $task_id );
-		}
 	}
 
 	// -------------------------------------------------------------------------

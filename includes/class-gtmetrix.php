@@ -263,12 +263,6 @@ class SRT_GTmetrix {
 		unset( $page['error'], $page['test_id'] );
 
 		self::update_page( $task_id, $page_index, $page );
-
-		// The checklist's single "Page Load Speed" answer still auto-fills
-		// from the homepage only — per-page detail is for the report tables.
-		if ( 0 === $page_index ) {
-			self::apply_to_checklist( $task_id, $new );
-		}
 	}
 
 	private static function store_page_error( $task_id, $page_index, $url, $message ) {
@@ -333,52 +327,6 @@ class SRT_GTmetrix {
 
 	private static function api_key() {
 		return trim( (string) get_option( self::API_KEY_OPT, '' ) );
-	}
-
-	// -------------------------------------------------------------------------
-	// Checklist auto-fill (Page Load Speed)
-	// -------------------------------------------------------------------------
-
-	/**
-	 * Sets the "Page Load Speed" checklist item's answer from the fetched
-	 * GTmetrix performance score — same "auto-fill only if it matches one of
-	 * the item's own configured choices" contract as
-	 * SRT_Kinsta::apply_security_to_checklist().
-	 */
-	private static function apply_to_checklist( $task_id, $current ) {
-		if ( null === $current['performance'] ) {
-			return;
-		}
-
-		$rows = get_field( 'checklist', $task_id );
-
-		if ( ! is_array( $rows ) ) {
-			return;
-		}
-
-		$computed = $current['performance'] >= 90
-			? __( 'Good', 'rw-site-review-tasks' )
-			: __( 'Needs attention', 'rw-site-review-tasks' );
-
-		$changed = false;
-
-		foreach ( $rows as &$row ) {
-			if ( 'radio' !== $row['field_type'] || 'page load speed' !== strtolower( trim( (string) $row['label'] ) ) ) {
-				continue;
-			}
-
-			$choices = srt_lines_to_array( $row['choices'] );
-
-			if ( in_array( $computed, $choices, true ) ) {
-				$row['answer'] = $computed;
-				$changed       = true;
-			}
-		}
-		unset( $row );
-
-		if ( $changed ) {
-			update_field( 'checklist', $rows, $task_id );
-		}
 	}
 
 	// -------------------------------------------------------------------------

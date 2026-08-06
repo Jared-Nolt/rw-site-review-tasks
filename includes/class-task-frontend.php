@@ -62,49 +62,17 @@ class SRT_Task_Frontend {
 			return;
 		}
 
-		$rows   = get_field( 'checklist', $task_id );
+		$rows   = srt_get_checklist( $task_id );
 		$posted = isset( $_POST['srt_checklist'] ) ? (array) $_POST['srt_checklist'] : array();
 
-		if ( is_array( $rows ) ) {
+		if ( $rows ) {
 			foreach ( $rows as $i => &$row ) {
-				// Older rows can be missing the 'answer' key entirely (e.g. a
-				// row whose value was never stored) — normalize it to an empty
-				// string so every branch below has something to work with, and
-				// so the row stays fixed even if this save doesn't produce a
-				// new valid value for it.
-				if ( ! isset( $row['answer'] ) ) {
-					$row['answer'] = '';
-				}
-
-				switch ( $row['field_type'] ) {
-					case 'radio':
-						$value   = isset( $posted[ $i ]['answer'] ) ? wp_unslash( $posted[ $i ]['answer'] ) : '';
-						$choices = srt_lines_to_array( $row['choices'] );
-						if ( in_array( $value, $choices, true ) ) {
-							$row['answer'] = sanitize_text_field( $value );
-						}
-						break;
-
-					case 'checkbox':
-						$values  = isset( $posted[ $i ]['answer'] ) ? (array) wp_unslash( $posted[ $i ]['answer'] ) : array();
-						$choices = srt_lines_to_array( $row['choices'] );
-						$valid   = array_values( array_intersect( array_map( 'sanitize_text_field', $values ), $choices ) );
-						$row['answer'] = implode( "\n", $valid );
-						break;
-
-					case 'textarea':
-						$value         = isset( $posted[ $i ]['answer'] ) ? wp_unslash( $posted[ $i ]['answer'] ) : '';
-						$row['answer'] = sanitize_textarea_field( $value );
-						break;
-
-					case 'gallery':
-						$row['answer'] = self::handle_gallery_upload( $i, $task_id, $row['answer'] );
-						break;
-				}
+				$value         = isset( $posted[ $i ]['answer'] ) ? wp_unslash( $posted[ $i ]['answer'] ) : '';
+				$row['answer'] = sanitize_textarea_field( $value );
 			}
 			unset( $row );
 
-			update_field( 'checklist', $rows, $task_id );
+			srt_update_checklist( $task_id, $rows );
 		}
 
 		if ( isset( $_POST['srt_executive_summary'] ) ) {
@@ -158,36 +126,6 @@ class SRT_Task_Frontend {
 		exit;
 	}
 
-	private static function handle_gallery_upload( $i, $task_id, $existing_answer ) {
-		$ids = array_filter( array_map( 'absint', explode( ',', (string) $existing_answer ) ) );
-
-		if ( empty( $_FILES['srt_checklist_files']['name'][ $i ] ) ) {
-			return implode( ',', $ids );
-		}
-
-		if ( ! function_exists( 'media_handle_upload' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/image.php';
-			require_once ABSPATH . 'wp-admin/includes/file.php';
-			require_once ABSPATH . 'wp-admin/includes/media.php';
-		}
-
-		$_FILES['srt_gallery_upload'] = array(
-			'name'     => $_FILES['srt_checklist_files']['name'][ $i ],
-			'type'     => $_FILES['srt_checklist_files']['type'][ $i ],
-			'tmp_name' => $_FILES['srt_checklist_files']['tmp_name'][ $i ],
-			'error'    => $_FILES['srt_checklist_files']['error'][ $i ],
-			'size'     => $_FILES['srt_checklist_files']['size'][ $i ],
-		);
-
-		$attachment_id = media_handle_upload( 'srt_gallery_upload', $task_id );
-
-		if ( ! is_wp_error( $attachment_id ) ) {
-			$ids[] = $attachment_id;
-		}
-
-		return implode( ',', $ids );
-	}
-
 	public static function render() {
 		if ( 'login' === self::$access_error ) {
 			return sprintf(
@@ -210,11 +148,11 @@ class SRT_Task_Frontend {
 
 		$task_id    = self::$task_id;
 		$company_id = get_field( 'company', $task_id );
-		$period     = get_field( 'period', $task_id );
+		$period     = (string) get_field( 'period', $task_id );
 		$status     = get_field( 'status', $task_id );
-		$summary    = get_field( 'executive_summary', $task_id );
-		$rows       = get_field( 'checklist', $task_id );
-		$notes      = get_field( 'extra_notes', $task_id );
+		$summary    = (string) get_field( 'executive_summary', $task_id );
+		$rows       = srt_get_checklist( $task_id );
+		$notes      = (string) get_field( 'extra_notes', $task_id );
 
 		ob_start();
 		?>
@@ -228,7 +166,7 @@ class SRT_Task_Frontend {
 
 			<?php echo self::render_notices(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-			<form method="post" enctype="multipart/form-data" class="srt-checklist-form">
+			<form method="post" class="srt-checklist-form">
 				<?php wp_nonce_field( 'srt_task_' . $task_id, 'srt_task_nonce' ); ?>
 				<input type="hidden" name="task_id" value="<?php echo esc_attr( $task_id ); ?>" />
 
@@ -315,77 +253,13 @@ class SRT_Task_Frontend {
 	private static function render_item( $i, $row, $task_id = 0 ) {
 		ob_start();
 
-		// Older rows can be missing the 'answer' key entirely — treat that
-		// the same as an empty answer instead of throwing a notice.
-		if ( ! isset( $row['answer'] ) ) {
-			$row['answer'] = '';
-		}
-
-		switch ( $row['field_type'] ) {
-			case 'radio':
-				?>
-				<fieldset>
-					<legend><?php echo esc_html( $row['label'] ); ?></legend>
-					<?php foreach ( srt_lines_to_array( $row['choices'] ) as $choice ) : ?>
-						<label class="srt-checklist-choice">
-							<input
-								type="radio"
-								name="srt_checklist[<?php echo esc_attr( $i ); ?>][answer]"
-								value="<?php echo esc_attr( $choice ); ?>"
-								<?php checked( $row['answer'], $choice ); ?>
-							/>
-							<?php echo esc_html( $choice ); ?>
-						</label>
-					<?php endforeach; ?>
-				</fieldset>
-				<?php
-				break;
-
-			case 'checkbox':
-				$selected = srt_lines_to_array( $row['answer'] );
-				?>
-				<fieldset>
-					<legend><?php echo esc_html( $row['label'] ); ?></legend>
-					<?php foreach ( srt_lines_to_array( $row['choices'] ) as $choice ) : ?>
-						<label class="srt-checklist-choice">
-							<input
-								type="checkbox"
-								name="srt_checklist[<?php echo esc_attr( $i ); ?>][answer][]"
-								value="<?php echo esc_attr( $choice ); ?>"
-								<?php checked( in_array( $choice, $selected, true ) ); ?>
-							/>
-							<?php echo esc_html( $choice ); ?>
-						</label>
-					<?php endforeach; ?>
-				</fieldset>
-				<?php
-				break;
-
-			case 'textarea':
-				?>
-				<label>
-					<?php echo esc_html( $row['label'] ); ?><br />
-					<textarea name="srt_checklist[<?php echo esc_attr( $i ); ?>][answer]" rows="3" class="srt-checklist-textarea"><?php echo esc_textarea( $row['answer'] ); ?></textarea>
-				</label>
-				<?php
-				break;
-
-			case 'gallery':
-				$ids = array_filter( array_map( 'absint', explode( ',', (string) $row['answer'] ) ) );
-				?>
-				<p class="srt-checklist-gallery-label"><?php echo esc_html( $row['label'] ); ?></p>
-				<?php if ( $ids ) : ?>
-					<div class="srt-checklist-gallery">
-						<?php foreach ( $ids as $attachment_id ) : ?>
-							<?php echo wp_get_attachment_image( $attachment_id, 'thumbnail' ); ?>
-						<?php endforeach; ?>
-					</div>
-				<?php endif; ?>
-				<input type="file" name="srt_checklist_files[<?php echo esc_attr( $i ); ?>]" accept="image/*" />
-				<?php
-				break;
-		}
-
+		$answer = isset( $row['answer'] ) ? $row['answer'] : '';
+		?>
+		<label>
+			<?php echo esc_html( $row['label'] ); ?><br />
+			<textarea name="srt_checklist[<?php echo esc_attr( $i ); ?>][answer]" rows="3" class="srt-checklist-textarea"><?php echo esc_textarea( $answer ); ?></textarea>
+		</label>
+		<?php
 		return ob_get_clean();
 	}
 
@@ -465,7 +339,7 @@ class SRT_Task_Frontend {
 				<div class="srt-checklist-item">
 					<label>
 						<strong><?php esc_html_e( 'Security Overview Notes', 'rw-site-review-tasks' ); ?></strong><br />
-						<textarea name="srt_kinsta_security_notes" rows="3" class="srt-checklist-textarea"><?php echo esc_textarea( get_field( 'kinsta_security_notes', $task_id ) ); ?></textarea>
+						<textarea name="srt_kinsta_security_notes" rows="3" class="srt-checklist-textarea"><?php echo esc_textarea( (string) get_field( 'kinsta_security_notes', $task_id ) ); ?></textarea>
 					</label>
 				</div>
 
@@ -490,7 +364,7 @@ class SRT_Task_Frontend {
 				<div class="srt-checklist-item">
 					<label>
 						<strong><?php esc_html_e( 'Backups Notes', 'rw-site-review-tasks' ); ?></strong><br />
-						<textarea name="srt_kinsta_backups_notes" rows="3" class="srt-checklist-textarea"><?php echo esc_textarea( get_field( 'kinsta_backups_notes', $task_id ) ); ?></textarea>
+						<textarea name="srt_kinsta_backups_notes" rows="3" class="srt-checklist-textarea"><?php echo esc_textarea( (string) get_field( 'kinsta_backups_notes', $task_id ) ); ?></textarea>
 					</label>
 				</div>
 			<?php endif; ?>
@@ -509,7 +383,7 @@ class SRT_Task_Frontend {
 		ob_start();
 		?>
 		<div class="srt-scan-wrapper">
-			<h3 class="srt-group-title"><?php esc_html_e( 'Page Load Speed (GTmetrix)', 'rw-site-review-tasks' ); ?></h3>
+			<h3 class="srt-group-title"><?php esc_html_e( 'Page Load Speed', 'rw-site-review-tasks' ); ?></h3>
 			<?php if ( empty( $results['pages'] ) ) : ?>
 				<p class="srt-scan-meta"><?php esc_html_e( 'Not tested yet — runs automatically alongside the site scan.', 'rw-site-review-tasks' ); ?></p>
 			<?php else : ?>
@@ -520,6 +394,7 @@ class SRT_Task_Frontend {
 		<?php
 		return ob_get_clean();
 	}
+	/**END page load speed section**/
 }
 
 SRT_Task_Frontend::init();

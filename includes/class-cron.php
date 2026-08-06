@@ -217,24 +217,48 @@ class SRT_Cron {
 		update_field( 'status', '', $task_id );
 		update_field( 'executive_summary', $company_summary ? $company_summary : srt_default_executive_summary(), $task_id );
 
-		$items = get_field( 'checklist', $company_id );
+		$items = srt_get_checklist( $company_id );
 		$rows  = array();
 
-		if ( is_array( $items ) ) {
-			foreach ( $items as $item ) {
-				$rows[] = array(
-					'section'    => isset( $item['section'] ) ? $item['section'] : '',
-					'field_type' => $item['field_type'],
-					'label'      => $item['label'],
-					'choices'    => $item['choices'],
-					'answer'     => '',
-				);
-			}
+		foreach ( $items as $item ) {
+			$rows[] = array(
+				'section' => isset( $item['section'] ) ? $item['section'] : '',
+				'label'   => isset( $item['label'] ) ? $item['label'] : '',
+				'answer'  => '',
+			);
 		}
 
-		update_field( 'checklist', $rows, $task_id );
+		srt_update_checklist( $task_id, $rows );
+		self::verify_checklist_snapshot( $task_id, $rows );
 
 		return $task_id;
+	}
+
+	/**
+	 * Belt-and-braces check, kept from when this write went through ACF's
+	 * repeater (many small writes per save, one real observed failure mode).
+	 * The checklist is now one plain post meta array — a single atomic
+	 * write — so this should never actually fire, but it's cheap insurance:
+	 * re-reads what was persisted and, if the row count is off, writes the
+	 * snapshot again once. A second failure is logged rather than retried
+	 * indefinitely.
+	 */
+	private static function verify_checklist_snapshot( $task_id, $expected_rows ) {
+		if ( count( srt_get_checklist( $task_id ) ) === count( $expected_rows ) ) {
+			return;
+		}
+
+		error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			sprintf( 'SRT: task %d checklist snapshot was incomplete after the initial write — repairing.', $task_id )
+		);
+
+		srt_update_checklist( $task_id, $expected_rows );
+
+		if ( count( srt_get_checklist( $task_id ) ) !== count( $expected_rows ) ) {
+			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				sprintf( 'SRT: task %d checklist snapshot still incomplete after a repair attempt — needs manual review.', $task_id )
+			);
+		}
 	}
 
 	private static function advance_due_date( $company_id, $due_date ) {
