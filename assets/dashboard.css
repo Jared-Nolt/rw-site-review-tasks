@@ -108,7 +108,7 @@
 .srt-checklist-item > div:not(:last-child){
 	margin: 2rem 0;
 }
-.srt-checklist-item > div:last-child{
+.srt-scan-wrapper .srt-checklist-item:last-child{
 	margin: 0;
     padding: 0;
     border: none;
