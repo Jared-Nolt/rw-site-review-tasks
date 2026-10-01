@@ -578,7 +578,7 @@ function srt_register_acf_fields() {
 					'role'          => '',
 					'allow_null'    => 1,
 					'multiple'      => 0,
-					'instructions'  => 'The marketing guide (MG) assigned to this company.',
+					'instructions'  => 'The marketing guide (MG) assigned to this company. Dont add Stephen Hockman',
 				),
 				array(
 					'key'           => 'field_srt_company_active',

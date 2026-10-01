@@ -19,7 +19,17 @@ if ( ! defined( 'ABSPATH' ) ) {
  *     body — no separate "fetch the report" call needed here.
  *   - Report fields used (all under data.attributes): gtmetrix_grade,
  *     performance_score, structure_score, largest_contentful_paint (ms),
- *     total_blocking_time (ms), cumulative_layout_shift.
+ *     total_blocking_time (ms), cumulative_layout_shift, fully_loaded_time
+ *     (ms), page_bytes, page_requests, speed_index (ms), time_to_interactive
+ *     (ms), time_to_first_byte (ms), first_contentful_paint (ms).
+ *   - data.links.report_url is the free, human-viewable report page on
+ *     gtmetrix.com — stored alongside the metrics and linked from the
+ *     Current/Previous date header. data.links.report_pdf and
+ *     report_pdf_full exist too but cost extra GTmetrix credits per the
+ *     API docs, so those are deliberately never requested here. Report
+ *     links expire eventually (data.attributes.expires isn't tracked), so
+ *     a stale "Previous" link can 404 — acceptable, since it's a bonus
+ *     link rather than required data.
  *   - Recommended poll interval is 3s; this polls every 15s instead (a
  *     WP-Cron event per attempt, capped at MAX_POLL_ATTEMPTS) since Kinsta's
  *     and the site scanner's own schedules already assume "occasional",
@@ -227,24 +237,35 @@ class SRT_GTmetrix {
 		// Not queued/started/error: WordPress followed the 303-to-report
 		// redirect automatically, so this response body is the finished report.
 		$attrs = isset( $data['data']['attributes'] ) ? $data['data']['attributes'] : array();
+		$links = isset( $data['data']['links'] ) ? $data['data']['links'] : array();
 
 		if ( ! isset( $attrs['performance_score'] ) && ! isset( $attrs['gtmetrix_grade'] ) ) {
 			self::store_page_error( $task_id, $page_index, $url, __( 'Unexpected response from GTmetrix.', 'rw-site-review-tasks' ) );
 			return;
 		}
 
-		self::apply_page_report( $task_id, $page_index, $url, $attrs );
+		self::apply_page_report( $task_id, $page_index, $url, $attrs, $links );
 	}
 
-	private static function apply_page_report( $task_id, $page_index, $url, $attrs ) {
+	private static function apply_page_report( $task_id, $page_index, $url, $attrs, $links = array() ) {
 		$new = array(
-			'grade'       => isset( $attrs['gtmetrix_grade'] ) ? $attrs['gtmetrix_grade'] : '',
-			'performance' => isset( $attrs['performance_score'] ) ? (int) $attrs['performance_score'] : null,
-			'structure'   => isset( $attrs['structure_score'] ) ? (int) $attrs['structure_score'] : null,
-			'lcp_ms'      => isset( $attrs['largest_contentful_paint'] ) ? (int) $attrs['largest_contentful_paint'] : null,
-			'tbt_ms'      => isset( $attrs['total_blocking_time'] ) ? (int) $attrs['total_blocking_time'] : null,
-			'cls'         => isset( $attrs['cumulative_layout_shift'] ) ? (float) $attrs['cumulative_layout_shift'] : null,
-			'tested_at'   => current_time( 'mysql' ),
+			'grade'           => isset( $attrs['gtmetrix_grade'] ) ? $attrs['gtmetrix_grade'] : '',
+			'performance'     => isset( $attrs['performance_score'] ) ? (int) $attrs['performance_score'] : null,
+			'structure'       => isset( $attrs['structure_score'] ) ? (int) $attrs['structure_score'] : null,
+			'lcp_ms'          => isset( $attrs['largest_contentful_paint'] ) ? (int) $attrs['largest_contentful_paint'] : null,
+			'tbt_ms'          => isset( $attrs['total_blocking_time'] ) ? (int) $attrs['total_blocking_time'] : null,
+			'cls'             => isset( $attrs['cumulative_layout_shift'] ) ? (float) $attrs['cumulative_layout_shift'] : null,
+			'fully_loaded_ms' => isset( $attrs['fully_loaded_time'] ) ? (int) $attrs['fully_loaded_time'] : null,
+			'page_bytes'      => isset( $attrs['page_bytes'] ) ? (int) $attrs['page_bytes'] : null,
+			'page_requests'   => isset( $attrs['page_requests'] ) ? (int) $attrs['page_requests'] : null,
+			'speed_index'     => isset( $attrs['speed_index'] ) ? (int) $attrs['speed_index'] : null,
+			'tti_ms'          => isset( $attrs['time_to_interactive'] ) ? (int) $attrs['time_to_interactive'] : null,
+			'ttfb_ms'         => isset( $attrs['time_to_first_byte'] ) ? (int) $attrs['time_to_first_byte'] : null,
+			'fcp_ms'          => isset( $attrs['first_contentful_paint'] ) ? (int) $attrs['first_contentful_paint'] : null,
+			// Free human-viewable report link — see class doc comment re:
+			// why report_pdf / report_pdf_full are never requested.
+			'report_url'      => isset( $links['report_url'] ) ? $links['report_url'] : '',
+			'tested_at'       => current_time( 'mysql' ),
 		);
 
 		$results = self::get_results( $task_id );
@@ -409,6 +430,22 @@ class SRT_GTmetrix {
 		return null === $value ? '—' : ( rtrim( rtrim( number_format( $value, 2 ), '0' ), '.' ) ?: '0' );
 	}
 
+	private static function format_bytes( $bytes ) {
+		return null === $bytes ? '—' : round( $bytes / 1000000, 2 ) . ' MB';
+	}
+
+	private static function format_count( $value ) {
+		return null === $value ? '—' : (string) $value;
+	}
+
+	/**
+	 * Safe read of a metric key that may not exist yet — results saved by
+	 * versions of this class before a given field was added won't have it.
+	 */
+	private static function field( $arr, $key ) {
+		return isset( $arr[ $key ] ) ? $arr[ $key ] : null;
+	}
+
 	/**
 	 * The Page Load Speed report — one block per scanned page (homepage plus
 	 * any Additional Pages to Scan), each with its own not-tested/pending/
@@ -497,7 +534,17 @@ class SRT_GTmetrix {
 			array( __( 'LCP', 'rw-site-review-tasks' ), self::format_lcp( $current['lcp_ms'] ), $previous ? self::format_lcp( $previous['lcp_ms'] ) : '' ),
 			array( __( 'TBT', 'rw-site-review-tasks' ), self::format_tbt( $current['tbt_ms'] ), $previous ? self::format_tbt( $previous['tbt_ms'] ) : '' ),
 			array( __( 'CLS', 'rw-site-review-tasks' ), self::format_cls( $current['cls'] ), $previous ? self::format_cls( $previous['cls'] ) : '' ),
+			array( __( 'Fully Loaded Time', 'rw-site-review-tasks' ), self::format_lcp( self::field( $current, 'fully_loaded_ms' ) ), $previous ? self::format_lcp( self::field( $previous, 'fully_loaded_ms' ) ) : '' ),
+			array( __( 'Page Size', 'rw-site-review-tasks' ), self::format_bytes( self::field( $current, 'page_bytes' ) ), $previous ? self::format_bytes( self::field( $previous, 'page_bytes' ) ) : '' ),
+			array( __( 'Requests', 'rw-site-review-tasks' ), self::format_count( self::field( $current, 'page_requests' ) ), $previous ? self::format_count( self::field( $previous, 'page_requests' ) ) : '' ),
+			array( __( 'Speed Index', 'rw-site-review-tasks' ), self::format_lcp( self::field( $current, 'speed_index' ) ), $previous ? self::format_lcp( self::field( $previous, 'speed_index' ) ) : '' ),
+			array( __( 'Time to Interactive', 'rw-site-review-tasks' ), self::format_lcp( self::field( $current, 'tti_ms' ) ), $previous ? self::format_lcp( self::field( $previous, 'tti_ms' ) ) : '' ),
+			array( __( 'TTFB', 'rw-site-review-tasks' ), self::format_tbt( self::field( $current, 'ttfb_ms' ) ), $previous ? self::format_tbt( self::field( $previous, 'ttfb_ms' ) ) : '' ),
+			array( __( 'FCP', 'rw-site-review-tasks' ), self::format_lcp( self::field( $current, 'fcp_ms' ) ), $previous ? self::format_lcp( self::field( $previous, 'fcp_ms' ) ) : '' ),
 		);
+
+		$current_report_url  = self::field( $current, 'report_url' );
+		$previous_report_url = $previous ? self::field( $previous, 'report_url' ) : '';
 
 		ob_start();
 		?>
@@ -510,8 +557,20 @@ class SRT_GTmetrix {
 				</tr>
 				<tr class="rw-gtmetrix-dates">
 					<th></th>
-					<th><?php echo $previous ? esc_html( $previous['tested_at'] ) : '&#8212;'; ?></th>
-					<th><?php echo esc_html( $current['tested_at'] ); ?></th>
+					<th>
+						<?php if ( $previous && $previous_report_url ) : ?>
+							<a href="<?php echo esc_url( $previous_report_url ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $previous['tested_at'] ); ?></a>
+						<?php else : ?>
+							<?php echo $previous ? esc_html( $previous['tested_at'] ) : '&#8212;'; ?>
+						<?php endif; ?>
+					</th>
+					<th>
+						<?php if ( $current_report_url ) : ?>
+							<a href="<?php echo esc_url( $current_report_url ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $current['tested_at'] ); ?></a>
+						<?php else : ?>
+							<?php echo esc_html( $current['tested_at'] ); ?>
+						<?php endif; ?>
+					</th>
 				</tr>
 			</thead>
 			<tbody>
