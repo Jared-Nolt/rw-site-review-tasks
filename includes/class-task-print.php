@@ -440,10 +440,12 @@ class SRT_Task_Print {
 				<?php
 				// Kinsta Data and Page Load Speed are independent of the checklist —
 				// they're fetched data, not something contingent on a matching
-				// checklist item existing and being answered — so they're always
-				// considered here, on both the Client and MG PDF.
+				// checklist item existing and being answered. Kinsta Data shows on
+				// both the Client and MG PDF; Page Load Speed is MG PDF only.
 				echo self::render_kinsta_section_html( $task_id, $is_mg ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-				echo self::render_gtmetrix_section_html( $task_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				if ( $is_mg ) {
+					echo self::render_gtmetrix_section_html( $task_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				}
 				?>
 
 				<?php if ( $is_mg && $scan ) : ?>
@@ -546,8 +548,8 @@ class SRT_Task_Print {
 
 	/**
 	 * "Page Load Speed (GTmetrix)" section — the Previous/Current comparison
-	 * table, independent of the checklist. Shown on both the Client and MG
-	 * PDF; hidden entirely when there's no completed run yet.
+	 * table, independent of the checklist. Shown on the MG PDF only; hidden
+	 * entirely when there's no completed run yet.
 	 */
 	private static function render_gtmetrix_section_html( $task_id ) {
 		$table = SRT_GTmetrix::render_table_html( null, $task_id, true );
